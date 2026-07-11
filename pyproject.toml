@@ -1,0 +1,21 @@
+[project]
+name = "northstar-portfolio"
+version = "1.0.1"
+description = "A private, Xetra-aware ETF portfolio ledger with SQLite/Turso persistence."
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Shubham Kumar" }]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+exclude = ["northstar/market_provider.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]

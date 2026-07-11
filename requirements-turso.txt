@@ -1,0 +1,5 @@
+-r requirements.txt
+# Turso's SQLAlchemy dialect currently relies on a native libSQL driver.
+# Keep it out of the default local install so Python 3.14 users can run
+# Northstar with standard SQLite without compiling Rust extensions.
+sqlalchemy-libsql==0.2.0
