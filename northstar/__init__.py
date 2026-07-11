@@ -6,9 +6,11 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from flask import Flask, jsonify, request, send_from_directory
+from sqlalchemy import text
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .auth import bp as auth_bp
+from .password_reset import bp as password_reset_bp
 from .db import get_engine
 from .market_api import bp as market_bp
 from .models import Base
@@ -30,6 +32,7 @@ def create_app(test_config: dict | None = None) -> Flask:
 
     Base.metadata.create_all(get_engine())
     app.register_blueprint(auth_bp)
+    app.register_blueprint(password_reset_bp)
     app.register_blueprint(state_bp)
     app.register_blueprint(market_bp)
 
@@ -63,5 +66,15 @@ def create_app(test_config: dict | None = None) -> Flask:
     @app.get("/health")
     def health():
         return jsonify({"ok": True})
+
+    @app.get("/ready")
+    def ready():
+        try:
+            with get_engine().connect() as connection:
+                connection.execute(text("SELECT 1"))
+            return jsonify({"ok": True, "database": "connected"})
+        except Exception:
+            app.logger.exception("Database readiness check failed")
+            return jsonify({"ok": False, "database": "unavailable"}), 503
 
     return app

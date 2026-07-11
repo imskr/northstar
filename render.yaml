@@ -5,7 +5,7 @@ services:
     plan: free
     region: frankfurt
     buildCommand: pip install -r requirements-turso.txt
-    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 90 'northstar:create_app()'
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 2 --worker-class sync --timeout 30 --access-logfile - --error-logfile - 'northstar:create_app()'
     healthCheckPath: /health
 
     envVars:
