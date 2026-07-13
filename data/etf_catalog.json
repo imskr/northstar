@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "instruments": [
     {
       "symbol": "BCFP.DE",
@@ -32,6 +32,17 @@
       "exchange": "London Stock Exchange",
       "nativeCurrency": "GBP",
       "issuer": "State Street SPDR",
+      "assetClass": "Equity"
+    },
+    {
+      "symbol": "EMSM.DE",
+      "ticker": "EMSM",
+      "name": "Invesco MSCI Emerging Markets UCITS ETF Acc",
+      "isin": "IE00B3DWVS88",
+      "exchangeSuffix": ".DE",
+      "exchange": "Xetra",
+      "nativeCurrency": "EUR",
+      "issuer": "Invesco",
       "assetClass": "Equity"
     },
     {
