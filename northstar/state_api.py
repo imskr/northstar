@@ -6,11 +6,9 @@ import math
 import time
 
 from flask import Blueprint, g, jsonify, request
-from sqlalchemy import delete, select
 
 from .auth import login_required
-from .db import SessionLocal, using_turso
-from .models import PortfolioState, Trade
+from .db import Statement, get_database, using_turso
 from .security import iso, utcnow
 
 bp = Blueprint("state_api", __name__, url_prefix="/api")
@@ -55,41 +53,51 @@ def _clean_trade(raw):
     }
 
 
-def _trade_to_dict(t: Trade):
-    out = {
-        "id": t.trade_id,
-        "asset": t.asset,
-        "type": t.type,
-        "date": t.trade_date,
-        "shares": t.shares,
-        "price": t.price,
-        "fee": t.fee,
-        "estimated": bool(t.estimated),
-        "createdAt": t.created_at,
+def _trade_to_dict(row):
+    output = {
+        "id": row["trade_id"],
+        "asset": row["asset"],
+        "type": row["type"],
+        "date": row["trade_date"],
+        "shares": row["shares"],
+        "price": row["price"],
+        "fee": row["fee"],
+        "estimated": bool(row["estimated"]),
+        "createdAt": row["created_at"],
     }
-    if t.realized_pnl_override is not None:
-        out["realizedPnlOverride"] = t.realized_pnl_override
-    return out
+    if row["realized_pnl_override"] is not None:
+        output["realizedPnlOverride"] = row["realized_pnl_override"]
+    return output
 
 
 @bp.get("/state")
 @login_required
 def load_state():
-    with SessionLocal() as db:
-        row = db.get(PortfolioState, g.user.id)
-        base = json.loads(row.state_json) if row and row.state_json else {}
-        trades = db.scalars(
-            select(Trade).where(Trade.user_id == g.user.id).order_by(Trade.trade_date, Trade.created_at)
-        ).all()
-        base["transactions"] = [_trade_to_dict(t) for t in trades]
-        return jsonify(
-            {
-                "state": base,
-                "revision": row.revision if row else 0,
-                "updatedAt": row.updated_at if row else None,
-                "storage": "turso" if using_turso() else "sqlite",
-            }
-        )
+    database = get_database()
+    row = database.query_one(
+        "SELECT state_json, revision, updated_at FROM portfolio_state WHERE user_id = ?",
+        (g.user.id,),
+    )
+    base = json.loads(row["state_json"]) if row and row["state_json"] else {}
+    trades = database.query(
+        """
+        SELECT trade_id, asset, type, trade_date, shares, price, fee,
+               realized_pnl_override, estimated, created_at
+        FROM trades
+        WHERE user_id = ?
+        ORDER BY trade_date, created_at
+        """,
+        (g.user.id,),
+    ).rows
+    base["transactions"] = [_trade_to_dict(trade) for trade in trades]
+    return jsonify(
+        {
+            "state": base,
+            "revision": row["revision"] if row else 0,
+            "updatedAt": row["updated_at"] if row else None,
+            "storage": "turso" if using_turso() else "sqlite",
+        }
+    )
 
 
 @bp.put("/state")
@@ -101,9 +109,8 @@ def save_state():
         return jsonify({"error": "A portfolio state object is required."}), 400
     if len(json.dumps(incoming)) > 3_000_000:
         return jsonify({"error": "Portfolio state is too large."}), 413
-
     try:
-        trades = [_clean_trade(t) for t in incoming.get("transactions", [])]
+        trades = [_clean_trade(trade) for trade in incoming.get("transactions", [])]
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     if len(trades) > 20_000:
@@ -111,38 +118,52 @@ def save_state():
 
     state_without_trades = copy.deepcopy(incoming)
     state_without_trades.pop("transactions", None)
-    # Never persist obsolete provider secrets from older browser builds.
     market = state_without_trades.get("market")
     if isinstance(market, dict):
         for key in ("apiKey", "eodhdKey", "twelveKey"):
             market.pop(key, None)
 
     now = iso(utcnow())
-    with SessionLocal() as db:
-        row = db.get(PortfolioState, g.user.id)
-        if not row:
-            row = PortfolioState(user_id=g.user.id, state_json="{}", revision=0, updated_at=now)
-            db.add(row)
-        row.state_json = json.dumps(state_without_trades, separators=(",", ":"))
-        row.revision = int(row.revision or 0) + 1
-        row.updated_at = now
-
-        db.execute(delete(Trade).where(Trade.user_id == g.user.id))
-        for t in trades:
-            db.add(
-                Trade(
-                    trade_id=t["id"],
-                    user_id=g.user.id,
-                    asset=t["asset"],
-                    type=t["type"],
-                    trade_date=t["date"],
-                    shares=t["shares"],
-                    price=t["price"],
-                    fee=t["fee"],
-                    realized_pnl_override=t["realizedPnlOverride"],
-                    estimated=1 if t["estimated"] else 0,
-                    created_at=t["createdAt"],
-                )
-            )
-        db.commit()
-        return jsonify({"ok": True, "revision": row.revision, "updatedAt": now})
+    statements = [
+        Statement(
+            """
+            INSERT INTO portfolio_state (user_id, state_json, revision, updated_at)
+            VALUES (?, ?, 1, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                state_json = excluded.state_json,
+                revision = portfolio_state.revision + 1,
+                updated_at = excluded.updated_at
+            RETURNING revision
+            """,
+            (g.user.id, json.dumps(state_without_trades, separators=(",", ":")), now),
+            want_rows=True,
+        ),
+        Statement("DELETE FROM trades WHERE user_id = ?", (g.user.id,)),
+    ]
+    statements.extend(
+        Statement(
+            """
+            INSERT INTO trades
+                (trade_id, user_id, asset, type, trade_date, shares, price, fee,
+                 realized_pnl_override, estimated, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                trade["id"],
+                g.user.id,
+                trade["asset"],
+                trade["type"],
+                trade["date"],
+                trade["shares"],
+                trade["price"],
+                trade["fee"],
+                trade["realizedPnlOverride"],
+                1 if trade["estimated"] else 0,
+                trade["createdAt"],
+            ),
+        )
+        for trade in trades
+    )
+    results = get_database().transaction(statements)
+    revision = int(results[0].rows[0]["revision"])
+    return jsonify({"ok": True, "revision": revision, "updatedAt": now})

@@ -12,19 +12,14 @@ def app(tmp_path, monkeypatch):
     monkeypatch.setenv("COOKIE_SECURE", "false")
     monkeypatch.setenv("ALLOW_REGISTRATION", "true")
 
-    from northstar.db import get_engine
+    from northstar.db import get_database
 
-    get_engine.cache_clear()
-    import northstar.db as db_module
-
-    db_module.SessionLocal.configure(bind=get_engine())
-
+    get_database.cache_clear()
     from northstar import create_app
 
-    app = create_app({"TESTING": True})
-    yield app
-    get_engine().dispose()
-    get_engine.cache_clear()
+    application = create_app({"TESTING": True})
+    yield application
+    get_database.cache_clear()
 
 
 @pytest.fixture()
