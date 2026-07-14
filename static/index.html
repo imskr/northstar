@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="northstar-build" content="24.0-live-quotes-portfolio-history">
+<meta name="northstar-build" content="25.0-batched-live-sync-clean-chart">
 <meta name="theme-color" content="#eee9df">
 <meta name="description" content="Northstar — a private, live portfolio operating system for Shubham's ETF plan.">
 <title>Northstar — European ETF Portfolio</title>
@@ -865,35 +865,41 @@ function mean(a){return a.length?a.reduce((s,x)=>s+x,0)/a.length:0}function stde
 function riskMetrics(){const assetHist=Object.fromEntries(Object.keys(state.assets).map(id=>[id,state.assets[id].history||[]]));const rows=alignSeries(assetHist);if(rows.length<25)return null;const w=Object.fromEntries(Object.keys(state.assets).map(id=>[id,weight(id)])),rets=returnsFromPrices(rows,Object.keys(state.assets),w),arr=rets.map(x=>x.r);if(arr.length<20)return null;const vol=stdev(arr)*Math.sqrt(252)*100;let curve=1,peak=1,maxDD=0;for(const r of arr){curve*=1+r;peak=Math.max(peak,curve);maxDD=Math.min(maxDD,curve/peak-1)}const years=arr.length/252,ann=(Math.pow(curve,1/years)-1)*100,mom=arr.slice(-21).reduce((v,r)=>v*(1+r),1)-1,worst=Math.min(...arr)*100;let beta=null,corr=null;const q=state.benchmarks.qqq.history||[],s=state.benchmarks.spy.history||[];const qr=returnsFromPrices(alignSeries({p:rows.map(x=>({date:x.date,close:1})),q}),['p','q'],{p:0,q:1}); // placeholder dates
  const qMap=new Map(q.map((x,i)=>i?[x.date,x.close/q[i-1].close-1]:[x.date,null])),sMap=new Map(s.map((x,i)=>i?[x.date,x.close/s[i-1].close-1]:[x.date,null]));const pa=[],qa=[],sa=[];for(const x of rets){if(qMap.get(x.date)!=null){pa.push(x.r);qa.push(qMap.get(x.date))}if(sMap.get(x.date)!=null)sa.push([x.r,sMap.get(x.date)])}if(pa.length>20){const v=stdev(qa);beta=v?covariance(pa,qa)/(v*v):null}if(sa.length>20)corr=correlation(sa.map(x=>x[0]),sa.map(x=>x[1]));const sharpe=vol? (ann-state.profile.riskFreeRate)/vol:null;return{vol,maxDD:maxDD*100,ann,mom:mom*100,worst,beta,corr,sharpe,returns:rets,curve}}
 function modelSeries(){
- const eligible=Object.keys(state.assets).filter(id=>(state.assets[id].history||[]).filter(row=>row&&row.date&&Number(row.close)>0).length>=2);
- if(!eligible.length){
-  const snapshots=(state.snapshots||[]).filter(row=>row&&row.date&&Number(row.value)>0).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
-  if(snapshots.length>=2){const first=Number(snapshots[0].value);return snapshots.map(row=>({date:String(row.date).slice(0,10),value:Number(row.value)/first*100}))}
-  if(totalValue()>0)return[{date:new Date().toISOString().slice(0,10),value:100}];
-  return[];
+ const clean=rows=>(rows||[]).filter(row=>row&&/^\d{4}-\d{2}-\d{2}/.test(String(row.date))&&Number(row.close)>0).map(row=>({date:String(row.date).slice(0,10),close:Number(row.close)})).sort((a,b)=>a.date.localeCompare(b.date));
+ const candidates=Object.keys(state.assets).map(id=>({id,rows:clean(state.assets[id].history),value:Math.max(0,Number(replay(id).value)||0),target:Math.max(0,Number(state.assets[id].target)||0)})).filter(item=>item.rows.length>=2&&(item.value>0||item.target>0));
+ if(!candidates.length){
+  const snapshots=(state.snapshots||[]).filter(row=>row&&row.date&&Number(row.value)>0).map(row=>({date:String(row.date).slice(0,10),value:Number(row.value)})).sort((a,b)=>a.date.localeCompare(b.date));
+  const unique=[...new Map(snapshots.map(row=>[row.date,row])).values()];
+  if(unique.length>=2){const base=unique[0].value;return unique.map(row=>({date:row.date,value:row.value/base*100}))}
+  return totalValue()>0?[{date:new Date().toISOString().slice(0,10),value:100}]:[];
  }
- const maps={},bases={},dates=new Set();
- eligible.forEach(id=>{const rows=(state.assets[id].history||[]).filter(row=>row&&row.date&&Number(row.close)>0).sort((a,b)=>String(a.date).localeCompare(String(b.date)));maps[id]=new Map(rows.map(row=>[String(row.date).slice(0,10),Number(row.close)]));bases[id]=Number(rows[0].close);rows.forEach(row=>dates.add(String(row.date).slice(0,10)))});
- let preferred=Object.fromEntries(eligible.map(id=>[id,Math.max(0,Number(weight(id))||0)])),sum=Object.values(preferred).reduce((n,v)=>n+v,0);
- if(sum<=0){preferred=Object.fromEntries(eligible.map(id=>[id,Math.max(0,Number(state.assets[id].target)||0)]));sum=Object.values(preferred).reduce((n,v)=>n+v,0)}
- if(sum<=0){preferred=Object.fromEntries(eligible.map(id=>[id,1]));sum=eligible.length}
- Object.keys(preferred).forEach(id=>preferred[id]/=sum);
- const latest={},output=[];
- [...dates].sort().forEach(date=>{eligible.forEach(id=>{const close=maps[id].get(date);if(Number.isFinite(close)&&close>0)latest[id]=close/bases[id]*100});const active=eligible.filter(id=>Number.isFinite(latest[id])),activeWeight=active.reduce((n,id)=>n+preferred[id],0);if(!active.length||activeWeight<=0)return;const value=active.reduce((n,id)=>n+latest[id]*(preferred[id]/activeWeight),0);if(Number.isFinite(value))output.push({date,value})});
+ const start=candidates.map(item=>item.rows[0].date).sort().at(-1),end=candidates.map(item=>item.rows.at(-1).date).sort()[0];
+ if(!start||!end||start>end)return[];
+ const dates=[...new Set(candidates.flatMap(item=>item.rows.map(row=>row.date).filter(date=>date>=start&&date<=end)))].sort();
+ if(dates.length<2)return[];
+ let weights=Object.fromEntries(candidates.map(item=>[item.id,item.value]));let sum=Object.values(weights).reduce((n,v)=>n+v,0);
+ if(sum<=0){weights=Object.fromEntries(candidates.map(item=>[item.id,item.target]));sum=Object.values(weights).reduce((n,v)=>n+v,0)}
+ if(sum<=0){weights=Object.fromEntries(candidates.map(item=>[item.id,1]));sum=candidates.length}
+ Object.keys(weights).forEach(id=>weights[id]/=sum);
+ const maps=Object.fromEntries(candidates.map(item=>[item.id,new Map(item.rows.map(row=>[row.date,row.close]))])),latest={},base={};
+ candidates.forEach(item=>{for(const row of item.rows){if(row.date>start)break;latest[item.id]=row.close}base[item.id]=latest[item.id]});
+ const output=[];
+ dates.forEach(date=>{candidates.forEach(item=>{const value=maps[item.id].get(date);if(Number.isFinite(value)&&value>0)latest[item.id]=value});if(candidates.some(item=>!Number.isFinite(latest[item.id])||!Number.isFinite(base[item.id])||base[item.id]<=0))return;const value=candidates.reduce((total,item)=>total+weights[item.id]*(latest[item.id]/base[item.id])*100,0);if(Number.isFinite(value))output.push({date,value})});
  return output;
 }
 function alignPerformanceSeries(series){
- const dates=[...new Set(series.flatMap(item=>item.data.map(point=>point.date).filter(Boolean)))].sort();
- if(!dates.length)return series;
- return series.map(item=>{
-  const rows=item.data.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))),map=new Map(rows.map(point=>[point.date,Number(point.y)]));
-  let last=null,base=null;
-  const data=dates.map(date=>{
-   if(map.has(date)&&Number.isFinite(map.get(date)))last=map.get(date);
-   if(!Number.isFinite(last))return{date,label:new Date(`${date}T00:00:00`).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'2-digit'}),y:null};
-   if(base==null)base=last;
-   return{date,label:new Date(`${date}T00:00:00`).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'2-digit'}),y:base!==0?last/base*100:null};
-  });
+ const cleaned=series.map(item=>({...item,data:(item.data||[]).filter(point=>point&&point.date&&point.y!==null&&point.y!==undefined&&Number.isFinite(Number(point.y))).map(point=>({date:String(point.date).slice(0,10),y:Number(point.y)})).sort((a,b)=>a.date.localeCompare(b.date))}));
+ const lineSeries=cleaned.filter(item=>item.data.length>=2);
+ if(!lineSeries.length)return cleaned;
+ const start=lineSeries.map(item=>item.data[0].date).sort().at(-1),end=lineSeries.map(item=>item.data.at(-1).date).sort()[0];
+ if(!start||!end||start>end)return cleaned;
+ const dates=[...new Set(lineSeries.flatMap(item=>item.data.map(point=>point.date).filter(date=>date>=start&&date<=end)))].sort();
+ return cleaned.map(item=>{
+  if(item.data.length<2){const point=item.data.at(-1);return{...item,data:point?[{date:end,label:new Date(`${end}T00:00:00`).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'2-digit'}),y:Number(point.y)}]:[]}}
+  const map=new Map(item.data.map(point=>[point.date,point.y]));let last=null;
+  for(const point of item.data){if(point.date>start)break;last=point.y}
+  if(!Number.isFinite(last))return{...item,data:[]};const base=last;
+  const data=dates.map(date=>{if(map.has(date))last=map.get(date);return{date,label:new Date(`${date}T00:00:00`).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'2-digit'}),y:base?last/base*100:null}}).filter(point=>Number.isFinite(point.y));
   return{...item,data};
  });
 }
@@ -922,14 +928,12 @@ function proxyUrl(symbols,full=false,override,force=false){
 function applyUnifiedAsset(id,payload,full=false){if(!payload)throw new MarketDataError(`${META[id].ticker} returned no quote payload.`,'provider');const basis='last',p=Number(payload.lastTrade??payload.price);if(!Number.isFinite(p)||p<=0)throw new MarketDataError(`${META[id].ticker} returned no usable price.`,'provider',JSON.stringify(payload||{}).slice(0,500));const a=state.assets[id],prev=Number(payload.previousClose)||null;a.currentPrice=p;a.ticker=payload.ticker||a.ticker;a.name=payload.name||a.name;a.exchange=payload.exchange||a.exchange||exchangeName(a.symbol);a.currency='EUR';a.nativeCurrency=payload.nativeCurrency||a.nativeCurrency||'EUR';a.quote={previousClose:prev,change:prev?p-prev:null,percentChange:prev?(p/prev-1)*100:null,datetime:payload.marketTime||payload.updatedAt||new Date().toISOString(),marketOpen:payload.marketState==='REGULAR',marketState:payload.marketState||null,source:payload.source||providerLabel(),currency:'EUR',nativeCurrency:payload.nativeCurrency||'EUR',nativePrice:Number(payload.nativePrice)||null,fxToEur:Number(payload.fxToEur)||1,exchange:payload.exchange||a.exchange||exchangeName(a.symbol),priceBasis:basis,lastTrade:p,bid:null,ask:null,mid:null,spreadPct:null};const values=(payload.history||[]).filter(x=>x&&x.date&&Number(x.close));if(full&&values.length)a.history=values.slice(-(state.market.historySize||260));else if(values.length){const latest=values.at(-1),date=String(latest.date).slice(0,10),last=a.history?.at(-1);a.history=a.history||[];if(last?.date===date)last.close=Number(latest.close);else a.history.push({date,close:Number(latest.close)});a.history=a.history.slice(-(state.market.historySize||260))}rebuildMeta()}
 function applyUnifiedBenchmark(key,payload){const values=(payload?.history||[]).filter(x=>x&&x.date&&Number(x.close));if(values.length)state.benchmarks[key].history=values.slice(-(state.market.historySize||260))}
 async function fetchProxyBatch(full=false,endpointOverride,force=false){
- const assetIds=Object.keys(state.assets),assetSymbols=assetIds.map(id=>state.assets[id].symbol),benchmarkKeys=Object.keys(state.benchmarks),benchmarkSymbols=full?benchmarkKeys.map(k=>state.benchmarks[k].symbol):[],symbols=[...assetSymbols,...benchmarkSymbols];
+ const assetIds=Object.keys(state.assets),assetSymbols=assetIds.map(id=>state.assets[id].symbol),benchmarkKeys=Object.keys(state.benchmarks),benchmarkSymbols=full?benchmarkKeys.map(key=>state.benchmarks[key].symbol):[],symbols=[...assetSymbols,...benchmarkSymbols];
  if(!symbols.length)throw new MarketDataError('Add an ETF before syncing prices.','provider');
- const result=await fetchJson(proxyUrl(symbols,full,endpointOverride,force));
- const data=result.data||result.symbols||{},failures=[];
- assetIds.forEach((id,i)=>{try{applyUnifiedAsset(id,data[assetSymbols[i]],full)}catch(e){failures.push(e)}});
- if(assetIds.length&&failures.length===assetIds.length)throw failures[0];
- if(full)benchmarkKeys.forEach((key,i)=>applyUnifiedBenchmark(key,data[benchmarkSymbols[i]]));
- return{failures,provider:result.provider||'Northstar market service',updatedAt:result.updatedAt,freshRequested:!!result.freshRequested,realtime:!!result.realtime,warnings:result.warnings||[],errors:result.errors||{}};
+ const result=await fetchJson(proxyUrl(symbols,full,endpointOverride,force)),data=result.data||result.symbols||{},failures=[];
+ assetIds.forEach((id,index)=>{try{applyUnifiedAsset(id,data[assetSymbols[index]],full)}catch(error){failures.push(error)}});if(assetIds.length&&failures.length===assetIds.length){const detail=result.diagnostic||Object.entries(result.liveIssues||{}).map(([symbol,message])=>`${symbol}: ${message}`).join(' | ')||Object.entries(result.errors||{}).map(([symbol,message])=>`${symbol}: ${message}`).join(' | ');throw new MarketDataError(result.error||'No selected ETF returned a usable price.','provider',detail)}
+ if(full)benchmarkKeys.forEach((key,index)=>applyUnifiedBenchmark(key,data[benchmarkSymbols[index]]));
+ return{failures,provider:result.provider||'Northstar market service',updatedAt:result.updatedAt,freshRequested:!!result.freshRequested,realtime:!!result.realtime,realTimeConfigured:!!result.realTimeConfigured,warnings:result.warnings||[],diagnostic:result.diagnostic||'',liveIssues:result.liveIssues||{},errors:result.errors||{}};
 }
 function tdUrl(path,params,keyOverride){const key=(keyOverride||state.market.twelveKey||'').trim();if(!key)throw new MarketDataError('Add your Twelve Data key in Settings.','key');const u=new URL(`https://api.twelvedata.com/${path}`);for(const [k,v] of Object.entries({...params,apikey:key}))if(v!==undefined&&v!==null&&v!=='')u.searchParams.set(k,v);return u}
 function tdSymbol(raw){return raw.includes('.')?raw.replace('.DE',':XETR'):raw}
@@ -942,45 +946,12 @@ async function fetchHistoryAsset(){return fetchAssetBatch(true)}
 async function fetchHistoryBenchmark(){return providerMode()==='proxy'?fetchProxyBatch(true):null}
 async function testConnection(){const out=$('#connectionResult'),override=$('#setProxyUrl').value.trim(),count=Object.keys(state.assets).length;out.className='';if(!override){out.textContent='Enter the market endpoint first.';out.className='negative';return false}if(!count){out.textContent='Add an ETF before testing price retrieval.';out.className='amber';return false}state.market.lastTestAttempt=Date.now();save();out.textContent=`Requesting a fresh quote for ${count} selected ETF${count===1?'':'s'}…`;const old=state.market.provider;state.market.provider='proxy';try{const result=await fetchAssetBatch(false,override,true);out.textContent=`Fresh connection verified · ${count} ETF${count===1?'':'s'} · ${result.provider}`;out.className='positive';state.market.lastDiagnostic='Fresh market request succeeded.';save();renderAll();return true}catch(error){const friendly=friendlyMarketError(error);out.textContent=friendly.short;out.className=friendly.kind==='proxy_missing'?'amber':'negative';state.market.lastDiagnostic=friendly.detail;save();if($('#diagnosticText'))$('#diagnosticText').textContent=friendly.detail;return false}finally{state.market.provider=old}}
 async function syncMarket(show=true,deep=false,force=false){
- if(syncing)return;
- const assetCount=Object.keys(state.assets).length;
- if(!assetCount){if(show)toast('Add an ETF before syncing prices.','warn');return}
- if(!hasKey()){openSettings();toast('Configure the Northstar market endpoint.','warn');return}
- const now=Date.now(),limited=Number(state.market.rateLimitedUntil)||0;
- if(limited>now&&!force){if(show)toast('Refresh is paused while the market provider cools down.','warn');renderMarket();return}
- const lastAttempt=Number(state.market.lastAttempt)||0;
- if(!force&&now-lastAttempt<MARKET_MIN_SYNC_MS){if(show)toast('Prices were checked recently. Cached values are still current.');return}
+ if(syncing)return;const assetCount=Object.keys(state.assets).length;if(!assetCount){if(show)toast('Add an ETF before syncing prices.','warn');return}if(!hasKey()){openSettings();toast('Configure the Northstar market endpoint.','warn');return}
+ const now=Date.now(),limited=Number(state.market.rateLimitedUntil)||0;if(limited>now&&!force){if(show)toast('Refresh is paused while the market provider cools down.','warn');renderMarket();return}const lastAttempt=Number(state.market.lastAttempt)||0;if(!force&&now-lastAttempt<MARKET_MIN_SYNC_MS){if(show)toast('Prices were checked recently. Cached values are still current.');return}
  syncing=true;state.market.lastAttempt=now;state.market.lastError='';state.market.lastWarning='';renderMarket();
- try{
-  const quoteResult=await fetchAssetBatch(false,undefined,force);
-  state.market.lastUpdated=quoteResult.updatedAt||new Date().toISOString();
-  state.market.rateLimitedUntil=null;
-  const warnings=[...(quoteResult.warnings||[])];
-  if(quoteResult.failures?.length)warnings.push(`${quoteResult.failures.length} ETF quote${quoteResult.failures.length===1?'':'s'} unavailable.`);
-  const needsHistory=deep||!state.market.lastHistorySync||Date.now()-new Date(state.market.lastHistorySync).getTime()>24*3600000||Object.values(state.assets).some(asset=>(asset.history||[]).length<2);
-  if(needsHistory){
-   try{
-    const historyResult=await fetchAssetBatch(true,undefined,false);
-    state.market.lastHistorySync=historyResult.updatedAt||new Date().toISOString();
-    if(historyResult.failures?.length)warnings.push(`${historyResult.failures.length} history series unavailable.`);
-   }catch(historyError){
-    const historyFriendly=friendlyMarketError(historyError);
-    warnings.push(`Current prices synced, but chart history could not refresh: ${historyFriendly.short}`);
-   }
-  }
-  state.market.lastWarning=warnings.join(' ');
-  state.snapshots.push({date:new Date().toISOString(),value:totalValue()});
-  if(state.snapshots.length>500)state.snapshots=state.snapshots.slice(-500);
-  save();renderAll();
-  if(show){
-   const headline=quoteResult.realtime?'Real-time prices synced.':'Latest available prices synced.';
-   toast(state.market.lastWarning?`${headline} ${state.market.lastWarning}`:headline,quoteResult.realtime?'':'warn');
-  }
- }catch(error){
-  const friendly=friendlyMarketError(error);state.market.lastError=friendly.short;state.market.lastDiagnostic=friendly.detail;
-  if(friendly.kind==='rate_limit'){const delay=nextMinuteDelay();state.market.rateLimitedUntil=Date.now()+delay;clearTimeout(rateRetryTimer);if(state.market.autoRefresh)rateRetryTimer=setTimeout(()=>syncMarket(false,false,false),delay)}
-  save();renderAll();if(show&&friendly.kind!=='proxy_missing')toast(friendly.short,'warn');
- }finally{syncing=false;renderMarket()}
+ try{const quoteResult=await fetchAssetBatch(false,undefined,force);state.market.lastUpdated=quoteResult.updatedAt||new Date().toISOString();state.market.rateLimitedUntil=null;state.market.lastDiagnostic=quoteResult.diagnostic||`${quoteResult.provider} returned ${quoteResult.realtime?'real-time':'latest available'} prices.`;const warnings=[...(quoteResult.warnings||[])];if(quoteResult.failures?.length)warnings.push(`${quoteResult.failures.length} ETF quote${quoteResult.failures.length===1?'':'s'} unavailable.`);
+  const needsHistory=deep||!state.market.lastHistorySync||Date.now()-new Date(state.market.lastHistorySync).getTime()>24*3600000||Object.values(state.assets).some(asset=>(asset.history||[]).length<2)||Object.values(state.benchmarks).some(item=>(item.history||[]).length<2);if(needsHistory){try{const historyResult=await fetchAssetBatch(true,undefined,false);state.market.lastHistorySync=historyResult.updatedAt||new Date().toISOString();if(historyResult.failures?.length)warnings.push(`${historyResult.failures.length} history series unavailable.`);if(historyResult.diagnostic)state.market.lastDiagnostic+=` History: ${historyResult.diagnostic}`}catch(historyError){const friendly=friendlyMarketError(historyError);warnings.push(`Current prices synced, but chart history could not refresh: ${friendly.short}`);state.market.lastDiagnostic+=` History: ${friendly.detail}`}}
+  state.market.lastWarning=warnings.join(' ');state.snapshots.push({date:new Date().toISOString(),value:totalValue()});if(state.snapshots.length>500)state.snapshots=state.snapshots.slice(-500);save();renderAll();if(show){const headline=quoteResult.realtime?'Live prices synced.':'Latest available prices synced.';toast(state.market.lastWarning?`${headline} ${state.market.lastWarning}`:headline,quoteResult.realtime?'':'warn')}}catch(error){const friendly=friendlyMarketError(error);state.market.lastError=friendly.short;state.market.lastDiagnostic=friendly.detail;if(friendly.kind==='rate_limit'){const delay=nextMinuteDelay();state.market.rateLimitedUntil=Date.now()+delay;clearTimeout(rateRetryTimer)}save();renderAll();if(show&&friendly.kind!=='proxy_missing')toast(friendly.short,'warn')}finally{syncing=false;renderMarket()}
 }
 function setupTimer(){clearInterval(timer);if(state.market.autoRefresh&&hasKey())timer=setInterval(()=>syncMarket(false,false,false),Math.max(15,state.market.refreshSeconds||30)*1000)}
 function renderMarket(){const connected=hasKey(),hasData=Object.values(state.assets).some(a=>Number(a.currentPrice)),limited=(Number(state.market.rateLimitedUntil)||0)>Date.now(),healthy=connected&&hasData&&!state.market.lastError;$('#liveDot').className='dot '+(state.market.lastError?'error':healthy?'live':'');$('#liveText').textContent=limited?'Cooling down':state.market.lastError?'Using cached prices':healthy?'Market data ready':'Market data offline';$('#marketStatus').textContent=limited?'Refresh safely paused':state.market.lastError?'Cached pricing active':healthy?'Market pricing connected':connected?'Market connection configured':'Market data not connected';let detail;if(limited)detail='Northstar will retry automatically. Your last prices remain available.';else if(state.market.lastError)detail=state.market.lastError;else if(healthy)detail=`${providerLabel()} · ${basisName()} · manual fresh sync${state.market.lastWarning?' · '+state.market.lastWarning:''}`;else detail='Deploy the bundled Northstar market service, then add an ETF to activate prices.';$('#marketDetail').textContent=detail;$('#marketUpdated').textContent=state.market.lastUpdated?`Updated ${new Date(state.market.lastUpdated).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}`:'No sync yet';$('#refreshCadence').textContent='On demand';$('#providerLabel').textContent=providerLabel();if($('#diagnosticText'))$('#diagnosticText').textContent=state.market.lastDiagnostic||'No diagnostics recorded.'}
@@ -994,48 +965,28 @@ function renderKpis(){const r=riskMetrics(),ds=driftScore(),st=contributionStrea
 function benchmarkStats(series){if(series.length<2)return null;const first=series[0].value,last=series.at(-1).value;return (last/first-1)*100}
 function renderBenchmarkBoard(){const p=modelSeries(),q=benchmarkSeries('qqq'),s=benchmarkSeries('spy'),items=[['Your portfolio',benchmarkStats(p),'#58e7a8'],['Nasdaq-100 · QQQ',benchmarkStats(q),'#77a9ff'],['S&P 500 · SPY',benchmarkStats(s),'#ad8cff']];const max=Math.max(...items.map(x=>Math.abs(x[1]||0)),1);$('#benchmarkBoard').innerHTML=items.map(([n,v,c])=>`<div class="benchmark-row"><span>${n}</span><div class="bar"><i style="width:${Math.abs(v||0)/max*100}%;background:${c}"></i></div><strong class="${v==null?'':v>=0?'positive':'negative'}">${v==null?'—':`${v>=0?'+':''}${pct(v,2)}`}</strong></div>`).join('')}
 function drawChart(canvas,series,opts={}){
- const dpr=window.devicePixelRatio||1,w=canvas.clientWidth||700,h=canvas.clientHeight||305;
- canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);
+ const dpr=window.devicePixelRatio||1,w=canvas.clientWidth||700,h=canvas.clientHeight||305;canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);
  const c=canvas.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);
- const all=series.flatMap(s=>s.data.map(x=>Number(x.y))).filter(Number.isFinite);
- const css=getComputedStyle(document.documentElement),ink=css.getPropertyValue('--text').trim()||'#181613',muted=css.getPropertyValue('--muted').trim()||'#716b62',grid='#d5cec2',paper=css.getPropertyValue('--panel').trim()||'#f8f5ef';
- const parent=canvas.parentElement;parent.style.position='relative';
- let tip=parent.querySelector('.canvas-tooltip');if(!tip){tip=document.createElement('div');tip.className='canvas-tooltip';parent.appendChild(tip)}
- if(!all.length){c.clearRect(0,0,w,h);c.fillStyle=muted;c.font='12px "DM Sans", sans-serif';c.fillText('Sync prices and history to unlock this chart.',18,35);tip.style.opacity=0;return}
- let min=Math.min(...all),max=Math.max(...all);const spread=Math.max(1,max-min);min-=spread*.08;max+=spread*.1;
- const pad={l:w<520?44:58,r:16,t:18,b:32},cw=w-pad.l-pad.r,ch=h-pad.t-pad.b;
- const timelineLength=Math.max(1,...series.map(s=>s.data.length));
- const prepared=series.map(s=>({...s,pts:s.data.map((p,i)=>{const y=Number(p.y);return{x:pad.l+cw*(i/Math.max(1,timelineLength-1)),y:Number.isFinite(y)?pad.t+ch*(1-(y-min)/(max-min)):null,raw:p,index:i}})}));
- const renderOrder=[...prepared].sort((a,b)=>(a.name==='Portfolio'?1:0)-(b.name==='Portfolio'?1:0));
- const base=prepared.reduce((best,item)=>item.data.length>best.data.length?item:best,prepared[0]||{data:[],pts:[]});
- const hash=JSON.stringify(series.map(s=>[s.name,s.data.length,s.data.at(-1)?.y]));const animate=canvas.__hash!==hash;canvas.__hash=hash;
- const draw=(progress=1,hoverIndex=null)=>{
-  c.clearRect(0,0,w,h);c.save();
-  c.strokeStyle=grid;c.lineWidth=1;c.fillStyle=muted;c.font='9px "DM Sans", sans-serif';
-  for(let i=0;i<5;i++){const y=pad.t+ch*i/4;c.beginPath();c.moveTo(pad.l,y);c.lineTo(w-pad.r,y);c.stroke();const val=max-(max-min)*i/4;c.fillText(opts.currency?fmt(val,0):val.toFixed(0),2,y+3)}
-  renderOrder.forEach(s=>{
-   const finite=s.pts.filter(p=>Number.isFinite(p.y));
-   if(!finite.length)return;
-   if(finite.length===1){const p=finite[0];c.beginPath();c.arc(p.x,p.y,s.name==='Portfolio'?5:3.5,0,Math.PI*2);c.fillStyle=paper;c.fill();c.lineWidth=s.width||2;c.strokeStyle=s.color;c.stroke();return}
-   const visibleCount=Math.max(2,Math.ceil(finite.length*progress)),visible=finite.slice(0,visibleCount);
-   if(s.name==='Portfolio'&&visible.length>1){c.beginPath();c.moveTo(visible[0].x,h-pad.b);visible.forEach((p,i)=>i?c.lineTo(p.x,p.y):c.lineTo(p.x,p.y));c.lineTo(visible.at(-1).x,h-pad.b);c.closePath();const g=c.createLinearGradient(0,pad.t,0,h-pad.b);g.addColorStop(0,hexAlpha(s.color,.16));g.addColorStop(1,hexAlpha(s.color,0));c.fillStyle=g;c.fill()}
-   c.beginPath();visible.forEach((p,i)=>i?c.lineTo(p.x,p.y):c.moveTo(p.x,p.y));c.strokeStyle=s.color;c.lineWidth=s.width||(s.name==='Portfolio'?4:1.8);c.lineCap='round';c.lineJoin='round';c.stroke();
-  });
-  c.fillStyle=muted;c.font='9px "DM Sans", sans-serif';const first=base?.data?.find(x=>x.label)?.label||'',last=[...(base?.data||[])].reverse().find(x=>x.label)?.label||'';c.fillText(first,pad.l,h-8);c.fillText(last,w-pad.r-c.measureText(last).width,h-8);
-  if(hoverIndex!=null){const x=pad.l+cw*(hoverIndex/Math.max(1,timelineLength-1));c.strokeStyle='rgba(24,22,19,.32)';c.setLineDash([3,4]);c.beginPath();c.moveTo(x,pad.t);c.lineTo(x,h-pad.b);c.stroke();c.setLineDash([]);prepared.forEach(s=>{const p=s.pts[hoverIndex];if(!p||!Number.isFinite(p.y))return;c.beginPath();c.arc(p.x,p.y,s.name==='Portfolio'?5:4,0,Math.PI*2);c.fillStyle=paper;c.fill();c.lineWidth=2;c.strokeStyle=s.color;c.stroke()})}
-  c.restore();
- };
- const ease=t=>1-Math.pow(1-t,3);if(animate&&!matchMedia('(prefers-reduced-motion: reduce)').matches){const start=performance.now();const frame=now=>{const t=Math.max(0,Math.min(1,(now-start)/650));draw(ease(t));if(t<1)requestAnimationFrame(frame)};requestAnimationFrame(frame)}else draw(1);
- canvas.__drawHover=i=>draw(1,i);canvas.__prepared=prepared;canvas.__timelineLength=timelineLength;canvas.__pad=pad;canvas.__w=w;
- if(!canvas.__hoverBound){canvas.__hoverBound=true;canvas.addEventListener('mousemove',e=>{if(!canvas.__timelineLength)return;const r=canvas.getBoundingClientRect(),mx=e.clientX-r.left,ratio=Math.max(0,Math.min(1,(mx-canvas.__pad.l)/Math.max(1,canvas.__w-canvas.__pad.l-16))),idx=Math.round(ratio*Math.max(0,canvas.__timelineLength-1));canvas.__drawHover(idx);const rows=canvas.__prepared.map(s=>{const raw=s.data[idx];if(!raw||!Number.isFinite(Number(raw.y)))return'';return`<span><b><i style="background:${s.color}"></i>${s.name||'Series'}</b><b>${opts.currency?fmt(raw.y,0):Number(raw.y).toFixed(1)}</b></span>`}).join('');const label=canvas.__prepared.reduce((found,s)=>found||s.data[idx]?.label,'')||'';tip.innerHTML=`<strong>${label}</strong>${rows}`;const x=canvas.__pad.l+(canvas.__w-canvas.__pad.l-16)*(idx/Math.max(1,canvas.__timelineLength-1));tip.style.left=`${Math.max(75,Math.min(canvas.__w-75,x))}px`;tip.style.top='62px';tip.style.opacity=1});canvas.addEventListener('mouseleave',()=>{tip.style.opacity=0;canvas.__drawHover(null)})}
+ const valueOf=point=>point&&point.y!==null&&point.y!==undefined&&Number.isFinite(Number(point.y))?Number(point.y):null;
+ const all=series.flatMap(item=>(item.data||[]).map(valueOf)).filter(value=>value!==null);
+ const css=getComputedStyle(document.documentElement),muted=css.getPropertyValue('--muted').trim()||'#716b62',grid='#d5cec2',paper=css.getPropertyValue('--panel').trim()||'#f8f5ef';const parent=canvas.parentElement;parent.style.position='relative';let tip=parent.querySelector('.canvas-tooltip');if(!tip){tip=document.createElement('div');tip.className='canvas-tooltip';parent.appendChild(tip)}
+ if(!all.length){c.clearRect(0,0,w,h);c.fillStyle=muted;c.font='12px "DM Sans", sans-serif';c.fillText('Sync daily history to compare your portfolio.',18,35);tip.style.opacity=0;return}
+ let min=Math.min(...all),max=Math.max(...all);const spread=Math.max(2,max-min);min-=spread*.1;max+=spread*.1;const pad={l:w<520?44:58,r:18,t:18,b:32},cw=w-pad.l-pad.r,ch=h-pad.t-pad.b,timelineLength=Math.max(1,...series.map(item=>item.data.length));
+ const prepared=series.map(item=>({...item,pts:(item.data||[]).map((point,index)=>{const value=valueOf(point);return{x:pad.l+cw*(index/Math.max(1,timelineLength-1)),y:value===null?null:pad.t+ch*(1-(value-min)/(max-min)),raw:point,index}})}));const renderOrder=[...prepared].sort((a,b)=>(a.name==='Portfolio'?1:0)-(b.name==='Portfolio'?1:0));const base=prepared.reduce((best,item)=>item.data.length>best.data.length?item:best,prepared[0]||{data:[]});
+ const draw=hoverIndex=>{c.clearRect(0,0,w,h);c.save();c.strokeStyle=grid;c.lineWidth=1;c.fillStyle=muted;c.font='9px "DM Sans", sans-serif';for(let i=0;i<5;i++){const y=pad.t+ch*i/4;c.beginPath();c.moveTo(pad.l,y);c.lineTo(w-pad.r,y);c.stroke();const value=max-(max-min)*i/4;c.fillText(opts.currency?fmt(value,0):value.toFixed(0),2,y+3)}if(!opts.currency&&min<100&&max>100){const y=pad.t+ch*(1-(100-min)/(max-min));c.save();c.strokeStyle='rgba(24,22,19,.35)';c.setLineDash([4,4]);c.beginPath();c.moveTo(pad.l,y);c.lineTo(w-pad.r,y);c.stroke();c.restore()}
+  renderOrder.forEach(item=>{const points=item.pts.filter(point=>point.y!==null);if(!points.length)return;if(points.length===1){const point=points[0];c.beginPath();c.arc(point.x,point.y,item.name==='Portfolio'?5:3.5,0,Math.PI*2);c.fillStyle=paper;c.fill();c.lineWidth=item.width||2;c.strokeStyle=item.color;c.stroke();return}c.beginPath();points.forEach((point,index)=>index?c.lineTo(point.x,point.y):c.moveTo(point.x,point.y));c.strokeStyle=item.color;c.lineWidth=item.width||(item.name==='Portfolio'?3.4:1.8);c.lineCap='round';c.lineJoin='round';c.setLineDash(item.dash||[]);c.stroke();c.setLineDash([])});
+  c.fillStyle=muted;c.font='9px "DM Sans", sans-serif';const first=base.data.find(point=>point.label)?.label||'',last=[...base.data].reverse().find(point=>point.label)?.label||'';c.fillText(first,pad.l,h-8);c.fillText(last,w-pad.r-c.measureText(last).width,h-8);
+  if(hoverIndex!==null&&hoverIndex!==undefined){const x=pad.l+cw*(hoverIndex/Math.max(1,timelineLength-1));c.strokeStyle='rgba(24,22,19,.32)';c.setLineDash([3,4]);c.beginPath();c.moveTo(x,pad.t);c.lineTo(x,h-pad.b);c.stroke();c.setLineDash([]);prepared.forEach(item=>{const point=item.pts[hoverIndex];if(!point||point.y===null)return;c.beginPath();c.arc(point.x,point.y,item.name==='Portfolio'?5:4,0,Math.PI*2);c.fillStyle=paper;c.fill();c.lineWidth=2;c.strokeStyle=item.color;c.stroke()})}c.restore()};
+ draw(null);canvas.__drawHover=draw;canvas.__prepared=prepared;canvas.__timelineLength=timelineLength;canvas.__pad=pad;canvas.__w=w;
+ if(!canvas.__hoverBound){canvas.__hoverBound=true;canvas.addEventListener('mousemove',event=>{if(!canvas.__timelineLength)return;const rect=canvas.getBoundingClientRect(),ratio=Math.max(0,Math.min(1,(event.clientX-rect.left-canvas.__pad.l)/Math.max(1,canvas.__w-canvas.__pad.l-18))),index=Math.round(ratio*Math.max(0,canvas.__timelineLength-1));canvas.__drawHover(index);const rows=canvas.__prepared.map(item=>{const raw=item.data[index],value=valueOf(raw);if(value===null)return'';return`<span><b><i style="background:${item.color}"></i>${item.name||'Series'}</b><b>${opts.currency?fmt(value,0):value.toFixed(2)}</b></span>`}).join(''),label=canvas.__prepared.reduce((found,item)=>found||item.data[index]?.label,'')||'';tip.innerHTML=`<strong>${label}</strong>${rows}`;const x=canvas.__pad.l+(canvas.__w-canvas.__pad.l-18)*(index/Math.max(1,canvas.__timelineLength-1));tip.style.left=`${Math.max(75,Math.min(canvas.__w-75,x))}px`;tip.style.top='62px';tip.style.opacity=1});canvas.addEventListener('mouseleave',()=>{tip.style.opacity=0;canvas.__drawHover(null)})}
 }
 function hexAlpha(hex,a){if(!hex||hex[0]!=='#')return `rgba(182,75,58,${a})`;let h=hex.slice(1);if(h.length===3)h=h.split('').map(x=>x+x).join('');const n=parseInt(h,16);return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`}
 function drawMainChart(){
  const mode=state.ui.chartMode||'performance',canvas=$('#mainChart');
  if(mode==='projection'){const years=20,base=state.profile.expectedReturn,series=[{name:'Base',color:'#b64b3a',data:[]},{name:'Optimistic',color:'#315d6e',data:[]},{name:'Cautious',color:'#8f887d',data:[]}];for(let year=0;year<=years;year++){series[0].data.push({label:`Y${year}`,y:futureValue(totalValue(),monthlyTotal(),base,year)});series[1].data.push({label:`Y${year}`,y:futureValue(totalValue(),monthlyTotal(),base+2,year)});series[2].data.push({label:`Y${year}`,y:futureValue(totalValue(),monthlyTotal(),Math.max(0,base-2),year)})}$('#mainChartTitle').textContent='20-year projection';$('#mainChartSub').textContent='Illustrative, not guaranteed';$('#mainLegend').innerHTML=series.map(item=>`<span><i style="background:${item.color}"></i>${item.name}</span>`).join('');drawChart(canvas,series,{currency:true});return}
  if(mode==='goal'){const years=Math.max(10,state.profile.goalYears),data=[];for(let year=0;year<=years;year++)data.push({label:`Y${year}`,y:futureValue(totalValue(),monthlyTotal(),state.profile.expectedReturn,year)});const goal=data.map(point=>({label:point.label,y:state.profile.goal}));$('#mainChartTitle').textContent='Path to first €100k';$('#mainChartSub').textContent=`Current ${fmt(monthlyTotal())} monthly plan`;$('#mainLegend').innerHTML='<span><i style="background:#b64b3a"></i>Plan</span><span><i style="background:#aa8141"></i>Goal</span>';drawChart(canvas,[{name:'Plan',color:'#b64b3a',data,width:3.5},{name:'Goal',color:'#aa8141',data:goal,width:1.4}],{currency:true});return}
- const portfolio=modelSeries(),nasdaq=benchmarkSeries('qqq'),sp500=benchmarkSeries('spy'),aligned=alignPerformanceSeries([{name:'Portfolio',color:'#b64b3a',width:4.5,data:portfolio.map(point=>({date:point.date,y:point.value}))},{name:'Nasdaq-100',color:'#315d6e',width:2,data:nasdaq.map(point=>({date:point.date,y:point.value}))},{name:'S&P 500',color:'#6d5d75',width:2,data:sp500.map(point=>({date:point.date,y:point.value}))}]);
- $('#mainChartTitle').textContent='Portfolio vs benchmarks';$('#mainChartSub').textContent='Normalised to 100 · move across the chart for exact date values';$('#mainLegend').innerHTML=aligned.map(item=>`<span><i style="background:${item.color}"></i>${item.name}${item.data.filter(point=>Number.isFinite(Number(point.y))).length<2?' · current marker':''}</span>`).join('');drawChart(canvas,aligned);
+ const portfolio=modelSeries(),nasdaq=benchmarkSeries('qqq'),sp500=benchmarkSeries('spy'),aligned=alignPerformanceSeries([{name:'Portfolio',color:'#b64b3a',width:3.6,data:portfolio.map(point=>({date:point.date,y:point.value}))},{name:'Nasdaq-100',color:'#315d6e',width:1.8,dash:[7,4],data:nasdaq.map(point=>({date:point.date,y:point.value}))},{name:'S&P 500',color:'#6d5d75',width:1.8,dash:[3,4],data:sp500.map(point=>({date:point.date,y:point.value}))}]);
+ const portfolioPoints=aligned.find(item=>item.name==='Portfolio')?.data.length||0;$('#mainChartTitle').textContent='Portfolio vs benchmarks';$('#mainChartSub').textContent=portfolioPoints>=2?'Common date range · rebased to 100 · hover for exact values':'Portfolio history is incomplete. Run Sync prices to load daily closes.';$('#mainLegend').innerHTML=aligned.map(item=>`<span><i style="background:${item.color}"></i>${item.name}${item.name==='Portfolio'&&item.data.length<2?' · history needed':''}</span>`).join('');drawChart(canvas,aligned);
 }
 function renderPositions(){const ledger=transactionLedger(),assetIds=Object.keys(state.assets);$('#positionGrid').innerHTML=assetIds.length?assetIds.map(id=>{const a=state.assets[id],p=replay(id),m=META[id],live=!!state.market.lastUpdated;return `<div class="position-card"><div class="position-card-head"><div><strong><i class="ticker-dot" style="background:${m.color}"></i>${esc(m.ticker)}</strong><span>${esc(m.name)} · ${esc(a.symbol)}</span></div><button class="delete" data-reset="${id}">Reset</button></div><div class="position-inputs"><div class="field"><label>Starting shares</label><input data-pos="${id}" data-key="baselineShares" type="number" min="0" step="0.000001" value="${Number(a.baselineShares)||0}"></div><div class="field"><label>Average entry (€)</label><input data-pos="${id}" data-key="baselineAvgPrice" type="number" min="0" step="0.0001" value="${Number(a.baselineAvgPrice)||0}"></div><div class="field" style="grid-column:1/-1"><label>Prior realised P&amp;L (€)</label><input data-pos="${id}" data-key="baselineRealizedPnl" type="number" step="0.01" value="${Number(a.baselineRealizedPnl)||0}"></div></div><div class="locked-price"><span>${basisName()}</span><strong>${live&&p.price?fmt(p.price,4):'Waiting for sync'}</strong></div><div class="quote-meta"><b>${quoteState(id)}</b><span>${quoteDetails(id)}</span></div><div class="position-summary"><div><span>Current shares</span><strong>${num(p.shares)}</strong></div><div><span>Current avg</span><strong>${p.avg?fmt(p.avg,4):'—'}</strong></div><div><span>Market value</span><strong>${live?fmt(p.value,2):'—'}</strong></div><div><span>Unrealised</span><strong class="${p.unreal>=0?'positive':'negative'}">${live?fmt(p.unreal,2):'—'}</strong></div></div></div>`}).join(''):'<div class="empty-portfolio"><strong>No positions yet</strong>Add an ETF above to create its position card.</div>';const rows=[...state.transactions].filter(t=>state.assets[t.asset]).sort((a,b)=>new Date(b.date)-new Date(a.date)||Number(b.createdAt||0)-Number(a.createdAt||0));$('#tradeBody').innerHTML=rows.length?rows.map(t=>`<tr><td>${dateFmt(t.date)}</td><td class="${t.type==='buy'?'positive':'amber'}">${t.type.toUpperCase()}</td><td>${esc(META[t.asset]?.ticker||t.asset)}</td><td>${num(t.shares)}</td><td>${fmt(t.price,4)}${t.estimated?' <small class="amber">EST</small>':''}</td><td>${fmt(t.fee||0,2)}</td><td>${ledger[t.id]?.realized==null?'—':`<span class="${ledger[t.id].realized>=0?'positive':'negative'}">${ledger[t.id].realized>=0?'+':''}${fmt(ledger[t.id].realized,2)} · ${pct(ledger[t.id].realizedPct,2)}${ledger[t.id].overridden?' <small class="amber">MANUAL</small>':''}</span>`}</td><td><button class="delete" data-del="${t.id}">Delete</button></td></tr>`).join(''):'<tr><td colspan="8"><div class="empty">No recorded trades yet.<br>Your baseline holdings still calculate unrealised P&amp;L.</div></td></tr>';renderTradePreview()}
 function renderTradePreview(){const sh=Number($('#txShares')?.value)||0,p=Number($('#txPrice')?.value)||0,f=Number($('#txFee')?.value)||0,type=$('#txType')?.value||'buy',overrideRaw=$('#txRealizedOverride')?.value,override=overrideRaw===''?null:Number(overrideRaw),asset=$('#txAsset')?.value;if(!asset||!state.assets[asset]){$('#txRealizedField').hidden=true;$('#tradePreview').innerHTML='<span>Trade value</span><strong>Add an ETF first</strong>';return}const pos=replay(asset);$('#txRealizedField').hidden=type!=='sell';if(type==='buy'){$('#tradePreview').innerHTML=`<span>Cash used</span><strong>${fmt(Math.max(0,sh*p+f),2)}</strong>`}else{const sold=Math.min(sh,pos.shares),auto=(p-pos.avg)*sold-f,shown=override==null||!Number.isFinite(override)?auto:override;$('#tradePreview').innerHTML=`<span>Sale proceeds · realised ${override==null||!Number.isFinite(override)?'calculated':'manual'}</span><strong>${fmt(Math.max(0,sh*p-f),2)} · ${shown>=0?'+':''}${fmt(shown,2)}</strong>`}}
