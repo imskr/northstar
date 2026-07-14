@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import math
 import os
@@ -110,10 +111,13 @@ def _throttle() -> None:
 
 def _fetch_json(url: str, *, timeout: float = 9.0, fresh: bool = False) -> dict:
     _throttle()
+    if fresh:
+        separator = "&" if "?" in url else "?"
+        url = f"{url}{separator}northstar_ts={time.time_ns()}"
     headers = {
         "Accept": "application/json,text/plain,*/*",
         "Accept-Language": "en-GB,en;q=0.9",
-        "User-Agent": "Mozilla/5.0 AppleWebKit/537.36 Chrome/126 Safari/537.36 Northstar/22",
+        "User-Agent": "Mozilla/5.0 AppleWebKit/537.36 Chrome/126 Safari/537.36 Northstar/23",
     }
     if fresh:
         headers.update(
@@ -139,6 +143,7 @@ def _fetch_json(url: str, *, timeout: float = 9.0, fresh: bool = False) -> dict:
         raise RuntimeError("Market service timed out.") from exc
     except json.JSONDecodeError as exc:
         raise RuntimeError("Market service returned invalid JSON.") from exc
+
 def _cached_payload(
     key: tuple[str, str],
     loader,
@@ -173,23 +178,16 @@ def _cached_payload(
     return value, "refreshed"
 
 
-def _chart_payload(
-    symbol: str,
-    range_: str,
-    *,
-    interval: str = "1d",
-    fresh: bool = False,
-) -> dict:
+def _chart_payload(symbol: str, range_: str, *, fresh: bool = False) -> dict:
     encoded = quote(symbol, safe="")
-    params = {
-        "range": range_,
-        "interval": interval,
-        "events": "div,splits",
-        "includePrePost": "false",
-    }
-    if fresh:
-        params["northstar_ts"] = str(int(time.time() * 1000))
-    query = urlencode(params)
+    params = urlencode(
+        {
+            "range": range_,
+            "interval": "1d",
+            "events": "div,splits",
+            "includePrePost": "false",
+        }
+    )
     hosts = ("query1.finance.yahoo.com", "query2.finance.yahoo.com")
     if sum(ord(char) for char in symbol) % 2:
         hosts = tuple(reversed(hosts))
@@ -197,7 +195,7 @@ def _chart_payload(
     for host in hosts:
         try:
             data = _fetch_json(
-                f"https://{host}/v8/finance/chart/{encoded}?{query}",
+                f"https://{host}/v8/finance/chart/{encoded}?{params}",
                 fresh=fresh,
             )
             chart = data.get("chart") or {}
@@ -208,12 +206,103 @@ def _chart_payload(
             results = chart.get("result") or []
             if not results:
                 raise RuntimeError("No quote was returned.")
-            return results[0]
+            result = results[0]
+            result.setdefault("meta", {})["northstarProvider"] = "Yahoo Finance"
+            return result
         except MarketRateLimited:
+            # Both Yahoo public hosts use the same quota. Do not double a 429 burst.
             raise
         except Exception as exc:
             errors.append(str(exc))
     raise RuntimeError(" | ".join(errors[-2:]) or "No quote was returned.")
+
+
+def _fetch_text(url: str, *, timeout: float = 9.0) -> str:
+    _throttle()
+    request = Request(
+        url,
+        headers={
+            "Accept": "text/csv,text/plain,*/*",
+            "Accept-Language": "en-GB,en;q=0.9",
+            "Cache-Control": "no-cache, no-store, max-age=0",
+            "Pragma": "no-cache",
+            "User-Agent": "Mozilla/5.0 AppleWebKit/537.36 Chrome/126 Safari/537.36 Northstar/23",
+        },
+    )
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            return response.read().decode("utf-8", "replace")
+    except HTTPError as exc:
+        if exc.code == 429:
+            raise MarketRateLimited(_retry_after(exc.headers)) from exc
+        raise RuntimeError(f"Fallback quote service returned HTTP {exc.code}.") from exc
+    except URLError as exc:
+        raise RuntimeError(f"Could not reach the fallback quote service: {exc.reason}") from exc
+    except TimeoutError as exc:
+        raise RuntimeError("Fallback quote service timed out.") from exc
+
+
+def _stooq_payload(symbol: str) -> dict:
+    # Stooq uses the same .DE symbols for Xetra listings and provides a compact CSV
+    # quote endpoint. It is used only for an explicit fresh Xetra sync.
+    if not symbol.endswith(".DE"):
+        raise RuntimeError("No fallback quote source is configured for this exchange.")
+    encoded = quote(symbol.lower(), safe=".-")
+    text = _fetch_text(
+        f"https://stooq.com/q/l/?s={encoded}&f=sd2t2ohlcv&h&e=csv"
+    )
+    rows = list(csv.DictReader(text.splitlines()))
+    if not rows:
+        raise RuntimeError(f"Fallback quote service returned no row for {symbol}.")
+    row = rows[0]
+    close = _finite(row.get("Close"))
+    if close is None or close <= 0:
+        raise RuntimeError(f"Fallback quote service returned no usable price for {symbol}.")
+    stamp = None
+    date_value = str(row.get("Date") or "").strip()
+    time_value = str(row.get("Time") or "").strip()
+    for raw, fmt in (
+        (f"{date_value} {time_value}".strip(), "%Y-%m-%d %H:%M:%S"),
+        (date_value, "%Y-%m-%d"),
+    ):
+        if not raw:
+            continue
+        try:
+            stamp = int(datetime.strptime(raw, fmt).replace(tzinfo=UTC).timestamp())
+            break
+        except ValueError:
+            continue
+    if stamp is None:
+        stamp = int(datetime.now(UTC).timestamp())
+    return {
+        "meta": {
+            "currency": "EUR",
+            "regularMarketPrice": close,
+            "regularMarketTime": stamp,
+            "longName": symbol.split(".")[0],
+            "northstarProvider": "Stooq",
+        },
+        "timestamp": [stamp],
+        "indicators": {"quote": [{"close": [close]}]},
+    }
+
+
+def _load_market_payload(symbol: str, range_: str, *, fresh: bool) -> dict:
+    # Render's shared IPs are frequently throttled by Yahoo. For a manual Xetra
+    # refresh, use Stooq first; keep Yahoo for history and non-Xetra listings.
+    fallback_error: Exception | None = None
+    if fresh and range_ == "5d" and symbol.endswith(".DE"):
+        try:
+            return _stooq_payload(symbol)
+        except (MarketRateLimited, RuntimeError) as exc:
+            fallback_error = exc
+    try:
+        return _chart_payload(symbol, range_, fresh=fresh)
+    except (MarketRateLimited, RuntimeError) as exc:
+        if fallback_error is not None:
+            raise RuntimeError(f"{exc} Fallback quote failed: {fallback_error}") from exc
+        raise
+
 def _currency_parts(raw_currency: str | None) -> tuple[str, float]:
     raw = str(raw_currency or "EUR").strip()
     if raw in {"GBp", "GBX", "GBx", "GBPENCE"}:
@@ -221,7 +310,7 @@ def _currency_parts(raw_currency: str | None) -> tuple[str, float]:
     return raw.upper(), 1.0
 
 
-def _fx_to_eur(currency: str, *, force: bool = False) -> tuple[float, str]:
+def _fx_to_eur(currency: str) -> tuple[float, str]:
     currency = currency.upper()
     if currency == "EUR":
         return 1.0, "native"
@@ -230,10 +319,8 @@ def _fx_to_eur(currency: str, *, force: bool = False) -> tuple[float, str]:
     pair = f"{currency}EUR=X"
     payload, status = _cached_payload(
         (pair, "5d"),
-        lambda: _chart_payload(pair, "5d", fresh=force),
+        lambda: _chart_payload(pair, "5d"),
         ttl=HISTORY_CACHE_SECONDS,
-        force=force,
-        allow_stale=not force,
     )
     meta = payload.get("meta") or {}
     price = _finite(meta.get("regularMarketPrice"))
@@ -249,59 +336,41 @@ def _fx_to_eur(currency: str, *, force: bool = False) -> tuple[float, str]:
     if not price or price <= 0:
         raise RuntimeError(f"Could not convert {currency} prices to EUR.")
     return price, status
+
 def normalize(symbol: str, range_: str = "5d", *, force: bool = False) -> dict:
     symbol = normalize_symbol(symbol)
     if not is_supported_symbol(symbol):
         raise ValueError("Unsupported European exchange symbol.")
     if range_ not in RANGES:
         range_ = "5d"
-
-    intraday_refresh = force and range_ == "5d"
-    provider_range = "1d" if intraday_refresh else range_
-    interval = "1m" if intraday_refresh else "1d"
     ttl = QUOTE_CACHE_SECONDS if range_ == "5d" else HISTORY_CACHE_SECONDS
-    cache_key = (symbol, f"{provider_range}:{interval}")
     payload, quote_status = _cached_payload(
-        cache_key,
-        lambda: _chart_payload(
-            symbol,
-            provider_range,
-            interval=interval,
-            fresh=force,
-        ),
+        (symbol, range_),
+        lambda: _load_market_payload(symbol, range_, fresh=force),
         ttl=ttl,
         force=force,
         allow_stale=not force,
     )
-
     meta = payload.get("meta") or {}
     timestamps = payload.get("timestamp") or []
     quote_rows = (payload.get("indicators") or {}).get("quote") or []
     closes = (quote_rows[0] if quote_rows else {}).get("close") or []
     native_currency, unit_scale = _currency_parts(meta.get("currency"))
-    fx, fx_status = _fx_to_eur(native_currency, force=force)
+    # A manual quote refresh should not also force a second upstream FX request.
+    fx, fx_status = _fx_to_eur(native_currency)
     multiplier = unit_scale * fx
-
-    native_closes = [_finite(value) for value in closes]
-    latest_native_close = next(
-        (value for value in reversed(native_closes) if value and value > 0),
-        None,
-    )
-    history_by_date: dict[str, float] = {}
-    for timestamp, close in zip(timestamps, native_closes):
-        if close is None or close <= 0:
+    history: list[dict] = []
+    for timestamp, close in zip(timestamps, closes):
+        value = _finite(close)
+        if value is None or value <= 0:
             continue
-        day = datetime.fromtimestamp(int(timestamp), UTC).date().isoformat()
-        history_by_date[day] = close * multiplier
-    history = [
-        {"date": day, "close": value}
-        for day, value in sorted(history_by_date.items())
-    ]
-
-    meta_price = _finite(meta.get("regularMarketPrice"))
-    native_price = latest_native_close if force and latest_native_close else meta_price
-    if native_price is None:
-        native_price = latest_native_close
+        history.append(
+            {
+                "date": datetime.fromtimestamp(int(timestamp), UTC).date().isoformat(),
+                "close": value * multiplier,
+            }
+        )
+    native_price = _finite(meta.get("regularMarketPrice"))
     if native_price is None and history:
         price_eur = history[-1]["close"]
         native_price = price_eur / multiplier
@@ -309,7 +378,6 @@ def normalize(symbol: str, range_: str = "5d", *, force: bool = False) -> dict:
         price_eur = native_price * multiplier
     else:
         raise RuntimeError(f"{symbol} returned no usable market price.")
-
     previous_native = _finite(meta.get("chartPreviousClose")) or _finite(
         meta.get("previousClose")
     )
@@ -318,7 +386,7 @@ def normalize(symbol: str, range_: str = "5d", *, force: bool = False) -> dict:
         if previous_native is not None
         else (history[-2]["close"] if len(history) > 1 else None)
     )
-    market_timestamp = timestamps[-1] if force and timestamps else meta.get("regularMarketTime")
+    market_timestamp = meta.get("regularMarketTime")
     market_time = (
         datetime.fromtimestamp(int(market_timestamp), UTC)
         .isoformat()
@@ -328,7 +396,7 @@ def normalize(symbol: str, range_: str = "5d", *, force: bool = False) -> dict:
     )
     suffix, exchange_name = exchange_for_symbol(symbol)
     stale = quote_status == "stale" or fx_status == "stale"
-    source_detail = "fresh upstream quote" if force else "cached market quote"
+    provider_name = str(meta.get("northstarProvider") or "Yahoo Finance")
     return {
         "symbol": symbol,
         "ticker": symbol.split(".")[0],
@@ -344,12 +412,14 @@ def normalize(symbol: str, range_: str = "5d", *, force: bool = False) -> dict:
         "previousClose": previous_eur,
         "marketTime": market_time,
         "marketState": meta.get("marketState"),
+        "provider": provider_name,
         "source": (
-            f"European exchange data · {exchange_name} · EUR-normalised · {source_detail}"
+            f"{provider_name} · {exchange_name} · EUR-normalised"
             + (" · stale fallback" if stale else "")
         ),
         "stale": stale,
         "cacheStatus": quote_status,
-        "fresh": force and quote_status == "refreshed",
+        "fresh": quote_status == "refreshed",
         "history": history,
     }
+

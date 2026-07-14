@@ -47,7 +47,7 @@ def market():
     errors: dict[str, str] = {}
     # Keep upstream traffic deliberately small. A fresh manual sync bypasses our
     # application cache, so a larger burst would make provider throttling worse.
-    with ThreadPoolExecutor(max_workers=min(2, len(symbols))) as pool:
+    with ThreadPoolExecutor(max_workers=1 if fresh else min(2, len(symbols))) as pool:
         futures = {
             pool.submit(normalize, symbol, range_, force=fresh): symbol
             for symbol in symbols

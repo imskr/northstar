@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="northstar-build" content="22.0-fresh-quotes-targets-chart">
+<meta name="northstar-build" content="23.0-allocation-and-fresh-sync">
 <meta name="theme-color" content="#eee9df">
 <meta name="description" content="Northstar — a private, live portfolio operating system for Shubham's ETF plan.">
 <title>Northstar — European ETF Portfolio</title>
@@ -533,6 +533,16 @@ html.auth-pending .auth-boot{display:grid}
 .canvas-tooltip{z-index:40!important;max-width:min(260px,calc(100vw - 28px))!important}
 @media(max-width:720px){#settingsModal .modal-body{padding:18px!important}#settingsModal .field{padding:13px!important}.selected-etf{grid-template-columns:1fr!important}.selected-etf .delete{justify-self:start!important}}
 /* NORTHSTAR_V22_RELIABILITY_END */
+/* NORTHSTAR_V23_ALLOCATION_UI_START */
+.selected-etf{grid-template-columns:minmax(250px,1.7fr) minmax(112px,.65fr) minmax(105px,.55fr) minmax(112px,.6fr) auto!important;align-items:center!important}
+.allocation-readout{min-height:64px;display:flex;flex-direction:column;justify-content:center;gap:3px;padding:9px 11px;border:1px solid #c4baad;border-radius:12px;background:#f4eee4}
+.allocation-readout label{color:#625a51;font-size:9px;font-weight:850;letter-spacing:.09em;text-transform:uppercase}
+.allocation-readout strong{color:#181613;font-size:16px;font-variant-numeric:tabular-nums}
+.allocation-readout small{color:#6b6259;font-size:10px;line-height:1.25}
+.selected-etfs-head strong{display:block}.selected-etfs-head #targetSummary{display:inline-block;margin-top:4px}
+@media(max-width:960px){.selected-etf{grid-template-columns:minmax(220px,1.5fr) repeat(3,minmax(100px,.6fr))!important}.selected-etf .delete{grid-column:1/-1;justify-self:start}}
+@media(max-width:720px){.selected-etf{grid-template-columns:1fr 1fr!important}.selected-etf-id{grid-column:1/-1}.allocation-readout{min-height:58px}.selected-etf .delete{grid-column:1/-1}}
+/* NORTHSTAR_V23_ALLOCATION_UI_END */
 </style>
 </head>
 <body>
@@ -633,7 +643,7 @@ html.auth-pending .auth-boot{display:grid}
   </div>
   <div class="etf-results" id="etfSearchResults"><div class="empty-portfolio"><span class="empty-icon">⌕</span><strong>Search the Northstar ETF catalog</strong>Results will show the exact symbol, venue, and native trading currency.</div></div>
   <div class="selected-etfs">
-   <div class="selected-etfs-head"><div><div class="eyebrow">Allocation</div><strong>Your selected ETFs</strong><span id="targetSummary"> · targets must total 100%</span></div><button class="btn subtle" id="normalizeTargetsBtn" type="button">Balance to 100%</button></div>
+   <div class="selected-etfs-head"><div><div class="eyebrow">Investment strategy</div><strong>Current allocation and target plan</strong><span id="targetSummary"> · targets automatically total 100%</span></div><button class="btn subtle" id="normalizeTargetsBtn" type="button">Balance to 100%</button></div>
    <div class="selected-etf-list" id="selectedEtfList"></div>
   </div>
  </article>
@@ -732,7 +742,79 @@ function assetIdForSymbol(symbol){return `etf_${String(symbol).toLowerCase().rep
 function exchangeName(symbol){const upper=String(symbol||'').toUpperCase();const suffix=Object.keys(EUROPEAN_EXCHANGES).sort((a,b)=>b.length-a.length).find(x=>upper.endsWith(x));return suffix?EUROPEAN_EXCHANGES[suffix]:'European exchange'}
 function esc(value){return String(value??'').replace(/[&<>'"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]))}
 function rebuildMeta(){META={};Object.entries(state.assets||{}).forEach(([id,a],index)=>{const legacy=LEGACY_META[id]||{};META[id]={ticker:a.ticker||legacy.ticker||String(a.symbol||id).split('.')[0].toUpperCase(),issuer:a.issuer||legacy.issuer||a.exchange||exchangeName(a.symbol),name:a.name||legacy.name||a.symbol||id,isin:a.isin||legacy.isin||'',ter:Number.isFinite(Number(a.ter))?Number(a.ter):Number(legacy.ter)||0,color:a.color||ASSET_COLORS[index%ASSET_COLORS.length],focus:a.focus||legacy.focus||a.exchange||exchangeName(a.symbol),risk:a.risk||legacy.risk||'Market'}})}
-function normalizeTargets(){const ids=Object.keys(state.assets||{});if(!ids.length)return;let sum=ids.reduce((n,id)=>n+Math.max(0,Number(state.assets[id].target)||0),0);if(!sum)ids.forEach(id=>state.assets[id].target=1/ids.length);else ids.forEach(id=>state.assets[id].target=Math.max(0,Number(state.assets[id].target)||0)/sum);const budget=Math.max(0,Number(state.profile.monthlyInvestment)||600);let used=0;ids.forEach((id,index)=>{const amount=index===ids.length-1?Math.max(0,budget-used):Math.round(budget*state.assets[id].target);state.assets[id].monthly=amount;used+=amount})}
+function syncMonthlyFromTargets(){
+ const ids=Object.keys(state.assets||{});
+ if(!ids.length)return;
+ const budget=Math.max(0,Number(state.profile.monthlyInvestment)||0);
+ let allocated=0;
+ ids.forEach((id,index)=>{
+  const target=Math.max(0,Number(state.assets[id].target)||0);
+  const amount=index===ids.length-1
+   ?Math.max(0,Math.round((budget-allocated)*100)/100)
+   :Math.max(0,Math.round(budget*target*100)/100);
+  state.assets[id].monthly=amount;
+  allocated+=amount;
+ });
+}
+
+function normalizeTargets(){
+ const ids=Object.keys(state.assets||{});
+ if(!ids.length)return;
+ const raw=ids.map(id=>Math.max(0,Number(state.assets[id].target)||0));
+ const total=raw.reduce((sum,value)=>sum+value,0);
+ const weights=total>0?raw.map(value=>value/total):raw.map(()=>1/ids.length);
+ let allocated=0;
+ ids.forEach((id,index)=>{
+  const target=index===ids.length-1?Math.max(0,1-allocated):weights[index];
+  state.assets[id].target=target;
+  allocated+=target;
+ });
+ syncMonthlyFromTargets();
+}
+
+function rebalanceTargetFromEditor(id,percentage){
+ const ids=Object.keys(state.assets||{});
+ if(!state.assets[id]||!ids.length)return;
+ const desired=Math.max(0,Math.min(100,Number(percentage)||0))/100;
+ if(ids.length===1){
+  state.assets[id].target=1;
+  syncMonthlyFromTargets();
+  return;
+ }
+ const others=ids.filter(otherId=>otherId!==id);
+ const remaining=Math.max(0,1-desired);
+ const previousTotal=others.reduce((sum,otherId)=>sum+Math.max(0,Number(state.assets[otherId].target)||0),0);
+ state.assets[id].target=desired;
+ if(previousTotal>0){
+  others.forEach(otherId=>{
+   const previous=Math.max(0,Number(state.assets[otherId].target)||0);
+   state.assets[otherId].target=remaining*(previous/previousTotal);
+  });
+ }else{
+  const equal=remaining/others.length;
+  others.forEach(otherId=>state.assets[otherId].target=equal);
+ }
+ syncMonthlyFromTargets();
+}
+
+function targetsFromMonthlyAmounts(){
+ const ids=Object.keys(state.assets||{});
+ if(!ids.length)return;
+ const total=ids.reduce((sum,id)=>sum+Math.max(0,Number(state.assets[id].monthly)||0),0);
+ state.profile.monthlyInvestment=total;
+ if(total<=0){
+  ids.forEach(id=>state.assets[id].target=0);
+  return;
+ }
+ ids.forEach(id=>{
+  state.assets[id].target=Math.max(0,Number(state.assets[id].monthly)||0)/total;
+ });
+}
+
+function currentAllocationPercentage(id){
+ const total=totalValue();
+ return total>0&&state.assets[id]?replay(id).value/total*100:null;
+}
 function setAssetTarget(id,value){if(!state.assets[id])return;const parsed=Number(value);if(!Number.isFinite(parsed))return;state.assets[id].target=Math.max(0,Math.min(1,parsed))}
 function normalizeDynamicState(){const originalVersion=Number(state.version||0);state.version=15;state.profile=merge(DEFAULT.profile,state.profile||{});state.market=merge(DEFAULT.market,state.market||{});state.assets=state.assets&&typeof state.assets==='object'?state.assets:{};state.transactions=Array.isArray(state.transactions)?state.transactions:[];state.benchmarks=merge(DEFAULT.benchmarks,state.benchmarks||{});state.ui=merge(DEFAULT.ui,state.ui||{});const ids=Object.keys(state.assets);const untouchedLegacy=ids.length===3&&['bcfp','sec0','emsm'].every(id=>ids.includes(id))&&!state.transactions.length&&ids.every(id=>!Number(state.assets[id]?.baselineShares)&&!Number(state.assets[id]?.baselineRealizedPnl));if(originalVersion<15&&untouchedLegacy)state.assets={};for(const [id,a] of Object.entries(state.assets)){const legacy=LEGACY_META[id]||{};a.symbol=String(a.symbol||`${legacy.ticker||id}.DE`).trim().toUpperCase();a.ticker=a.ticker||legacy.ticker||a.symbol.split('.')[0];a.name=a.name||legacy.name||a.symbol;a.issuer=a.issuer||legacy.issuer||exchangeName(a.symbol);a.exchange=a.exchange||exchangeName(a.symbol);a.currency=a.currency||'EUR';a.target=Math.max(0,Number(a.target)||0);a.monthly=Math.max(0,Number(a.monthly)||0);a.baselineShares=Math.max(0,Number(a.baselineShares)||0);a.baselineAvgPrice=Math.max(0,Number(a.baselineAvgPrice)||0);a.baselineRealizedPnl=Number(a.baselineRealizedPnl)||0;a.currentPrice=Number(a.currentPrice)||null;a.quote=a.quote||null;a.history=Array.isArray(a.history)?a.history:[]}state.market.provider='proxy';state.market.proxyUrl=state.market.proxyUrl||'/api/market';state.market.priceBasis='last';state.market.exchange='EUR';state.profile.monthlyInvestment=Math.max(0,Number(state.profile.monthlyInvestment)||Object.values(state.assets).reduce((n,a)=>n+(Number(a.monthly)||0),0)||600);if(Object.keys(state.assets).length){const total=Object.values(state.assets).reduce((n,a)=>n+(Number(a.target)||0),0);if(!Number.isFinite(total)||total<=0)normalizeTargets()}rebuildMeta()}
 const previousVersion=Number(state.version||0);normalizeDynamicState();if(previousVersion<15)storage.setItem(STORAGE,JSON.stringify(state));
@@ -961,10 +1043,70 @@ window.addEventListener('resize',()=>{if($('#overview').classList.contains('acti
 function populateExchangeFilter(){const el=$('#etfExchangeFilter');if(!el||el.dataset.ready)return;for(const [suffix,name] of Object.entries(EUROPEAN_EXCHANGES)){const option=document.createElement('option');option.value=suffix;option.textContent=`${name} (${suffix})`;el.appendChild(option)}el.dataset.ready='1'}
 function populateTradeSelect(){const select=$('#txAsset');if(!select)return;const previous=select.value,ids=Object.keys(state.assets);select.innerHTML=ids.map(id=>`<option value="${esc(id)}">${esc(META[id].ticker)} · ${esc(state.assets[id].exchange||exchangeName(state.assets[id].symbol))}</option>`).join('')||'<option value="">Add an ETF first</option>';if(ids.includes(previous))select.value=previous;const submit=$('#tradeForm button[type="submit"]');if(submit)submit.disabled=!ids.length}
 function targetTotal(){return Object.values(state.assets).reduce((n,a)=>n+(Number(a.target)||0),0)*100}
-function refreshTargetSummary(){const ids=Object.keys(state.assets),total=targetTotal(),summary=$('#targetSummary'),count=$('#portfolioAssetCount'),allocation=$('#portfolioAllocationState'),balance=$('#normalizeTargetsBtn');if(summary){summary.textContent=ids.length?` · ${ids.length} ETF${ids.length===1?'':'s'} · ${total.toFixed(1)}% allocated`:' · no ETFs selected';summary.className=ids.length&&Math.abs(total-100)>.2?'amber':''}if(count)count.textContent=`${ids.length} ETF${ids.length===1?'':'s'}`;if(allocation)allocation.textContent=ids.length?`${total.toFixed(1)}% target allocation`:'Add your first fund below';if(balance)balance.disabled=!ids.length||Math.abs(total-100)<.05}
-function renderAssetManager(){/* NORTHSTAR_UI_V17_ASSET_COUNT */populateExchangeFilter();const list=$('#selectedEtfList');if(!list)return;const ids=Object.keys(state.assets);const total=targetTotal();const count=$('#portfolioAssetCount'),allocation=$('#portfolioAllocationState');if(count)count.textContent=`${ids.length} ETF${ids.length===1?'':'s'}`;if(allocation)allocation.textContent=ids.length?`${total.toFixed(1)}% target allocation`:'Add your first fund below';$('#targetSummary').textContent=ids.length?` · ${ids.length} ETF${ids.length===1?'':'s'} · ${total.toFixed(1)}% allocated`:' · no ETFs selected';$('#targetSummary').className=ids.length&&Math.abs(total-100)>.2?'amber':'';list.innerHTML=ids.length?ids.map(id=>{const a=state.assets[id],m=META[id];return `<div class="selected-etf"><div class="selected-etf-id"><div class="asset-monogram" style="background:${m.color}">${esc(m.ticker.slice(0,2))}</div><div><strong>${esc(m.ticker)} · ${esc(a.exchange||exchangeName(a.symbol))}</strong><span title="${esc(m.name)}">${esc(m.name)} · ${esc(a.symbol)}</span></div></div><div class="mini-field"><label>Target %</label><input data-etf-target="${esc(id)}" type="number" min="0" max="100" step="0.1" value="${((Number(a.target)||0)*100).toFixed(1)}"></div><div class="mini-field"><label>Monthly €</label><input data-etf-monthly="${esc(id)}" type="number" min="0" step="1" value="${Math.round(Number(a.monthly)||0)}"></div><button class="delete" data-remove-etf="${esc(id)}" type="button">Remove</button></div>`}).join(''):'<div class="empty-portfolio"><strong>No ETFs selected</strong>Search above or add an exact exchange symbol to begin.</div>';populateTradeSelect()}
-function addEtf(candidate){const symbol=String(candidate.symbol||'').trim().toUpperCase();if(!symbol||!Object.keys(EUROPEAN_EXCHANGES).some(suffix=>symbol.endsWith(suffix))){toast('Use a supported European exchange symbol.','warn');return}const existing=Object.entries(state.assets).find(([,a])=>a.symbol===symbol);if(existing){toast(`${symbol} is already in your portfolio.`,'warn');return}const oldIds=Object.keys(state.assets),newWeight=1/(oldIds.length+1);oldIds.forEach(id=>state.assets[id].target=(Number(state.assets[id].target)||1/oldIds.length)*(1-newWeight));const id=assetIdForSymbol(symbol);state.assets[id]={symbol,ticker:candidate.ticker||symbol.split('.')[0],name:candidate.name||symbol,issuer:candidate.issuer||candidate.exchange||exchangeName(symbol),exchange:candidate.exchange||exchangeName(symbol),currency:'EUR',nativeCurrency:candidate.nativeCurrency||'',isin:candidate.isin||'',target:newWeight,monthly:0,baselineShares:0,baselineAvgPrice:0,baselineRealizedPnl:0,currentPrice:null,quote:null,history:[]};normalizeTargets();rebuildMeta();save();renderAll();toast(`${symbol} added. Click Sync prices to refresh its valuation.`)}
-function removeEtf(id){const a=state.assets[id];if(!a)return;const hasData=Number(a.baselineShares)>0||state.transactions.some(t=>t.asset===id);const warning=hasData?`Remove ${META[id].ticker} and permanently delete its holdings and trades?`:`Remove ${META[id].ticker} from the portfolio?`;if(!confirm(warning))return;delete state.assets[id];state.transactions=state.transactions.filter(t=>t.asset!==id);if(Object.keys(state.assets).length)normalizeTargets();rebuildMeta();save();renderAll();toast('ETF removed.')}
+function refreshTargetSummary(){
+ const ids=Object.keys(state.assets);
+ const total=targetTotal();
+ const summary=$('#targetSummary');
+ const count=$('#portfolioAssetCount');
+ const allocation=$('#portfolioAllocationState');
+ const balance=$('#normalizeTargetsBtn');
+ if(summary){
+  summary.textContent=ids.length?` · ${ids.length} ETF${ids.length===1?'':'s'} · ${total.toFixed(1)}% target`:' · no ETFs selected';
+  summary.className=ids.length&&Math.abs(total-100)>.2?'amber':'';
+ }
+ if(count)count.textContent=`${ids.length} ETF${ids.length===1?'':'s'}`;
+ if(allocation)allocation.textContent=ids.length?`${total.toFixed(1)}% target plan`:'Add your first fund below';
+ if(balance)balance.disabled=!ids.length||Math.abs(total-100)<.05;
+}
+function renderAssetManager(){
+ /* NORTHSTAR_V23_ALLOCATION_EDITOR */
+ populateExchangeFilter();
+ const list=$('#selectedEtfList');
+ if(!list)return;
+ const ids=Object.keys(state.assets);
+ refreshTargetSummary();
+ list.innerHTML=ids.length?ids.map(id=>{
+  const asset=state.assets[id];
+  const meta=META[id];
+  const current=currentAllocationPercentage(id);
+  const position=replay(id);
+  const currentText=current==null?'—':`${current.toFixed(1)}%`;
+  const valueText=position.value>0?fmt(position.value,0):'No position value';
+  return `<div class="selected-etf">
+   <div class="selected-etf-id">
+    <div class="asset-monogram" style="background:${meta.color}">${esc(meta.ticker.slice(0,2))}</div>
+    <div><strong>${esc(meta.ticker)} · ${esc(asset.exchange||exchangeName(asset.symbol))}</strong><span title="${esc(meta.name)}">${esc(meta.name)} · ${esc(asset.symbol)}</span></div>
+   </div>
+   <div class="allocation-readout"><label>Current</label><strong>${currentText}</strong><small>${valueText}</small></div>
+   <div class="mini-field"><label>Target %</label><input data-etf-target="${esc(id)}" type="number" min="0" max="100" step="0.1" value="${((Number(asset.target)||0)*100).toFixed(1)}"></div>
+   <div class="mini-field"><label>Monthly €</label><input data-etf-monthly="${esc(id)}" type="number" min="0" step="1" value="${Math.round(Number(asset.monthly)||0)}"></div>
+   <button class="delete" data-remove-etf="${esc(id)}" type="button">Remove</button>
+  </div>`;
+ }).join(''):'<div class="empty-portfolio"><strong>No ETFs selected</strong>Search above or add an exact exchange symbol to begin.</div>';
+ populateTradeSelect();
+}
+function addEtf(candidate){
+ const symbol=String(candidate.symbol||'').trim().toUpperCase();
+ if(!symbol||!Object.keys(EUROPEAN_EXCHANGES).some(suffix=>symbol.endsWith(suffix))){toast('Use a supported European exchange symbol.','warn');return}
+ const existing=Object.entries(state.assets).find(([,asset])=>asset.symbol===symbol);
+ if(existing){toast(`${symbol} is already in your portfolio.`,'warn');return}
+ const oldIds=Object.keys(state.assets);
+ const id=assetIdForSymbol(symbol);
+ const first=!oldIds.length;
+ state.assets[id]={symbol,ticker:candidate.ticker||symbol.split('.')[0],name:candidate.name||symbol,issuer:candidate.issuer||candidate.exchange||exchangeName(symbol),exchange:candidate.exchange||exchangeName(symbol),currency:'EUR',nativeCurrency:candidate.nativeCurrency||'',isin:candidate.isin||'',target:first?1:0,monthly:first?Math.max(0,Number(state.profile.monthlyInvestment)||0):0,baselineShares:0,baselineAvgPrice:0,baselineRealizedPnl:0,currentPrice:null,quote:null,history:[]};
+ rebuildMeta();save();renderAll();toast(`${symbol} added. Set its target or monthly amount, then click Sync prices.`);
+}
+function removeEtf(id){
+ const asset=state.assets[id];
+ if(!asset)return;
+ const hasData=Number(asset.baselineShares)>0||state.transactions.some(transaction=>transaction.asset===id);
+ const warning=hasData?`Remove ${META[id].ticker} and permanently delete its holdings and trades?`:`Remove ${META[id].ticker} from the portfolio?`;
+ if(!confirm(warning))return;
+ delete state.assets[id];
+ state.transactions=state.transactions.filter(transaction=>transaction.asset!==id);
+ if(Object.keys(state.assets).length)normalizeTargets();
+ rebuildMeta();save();renderAll();toast('ETF removed and remaining targets were rebalanced proportionally.');
+}
 function renderSearchResults(results,message=''){const el=$('#etfSearchResults');if(!el)return;if(message){el.innerHTML=`<div class="empty-portfolio"><strong>${esc(message)}</strong>Search the local catalog or add an exact exchange symbol.</div>`;return}el.innerHTML=results.length?results.map((item,index)=>`<div class="etf-result"><div class="etf-result-main"><strong>${esc(item.ticker||item.symbol)} · ${esc(item.exchange)}</strong><p title="${esc(item.name)}">${esc(item.name)}</p><small>${esc(item.symbol)}${item.isin?` · ${esc(item.isin)}`:''}${item.nativeCurrency?` · ${esc(item.nativeCurrency)}`:''}</small></div><button class="btn" type="button" data-add-search="${index}">Add</button></div>`).join(''):'<div class="empty-portfolio"><strong>No European ETF found</strong>Try the fund name, ticker, or ISIN.</div>';el._results=results}
 async function searchEtfs(){const query=$('#etfSearchInput').value.trim(),exchange=$('#etfExchangeFilter').value;if(query.length<2){renderSearchResults([],'Enter at least two characters');return}const button=$('#etfSearchBtn');button.disabled=true;button.textContent='Searching…';try{const params=new URLSearchParams({q:query});if(exchange)params.set('exchange',exchange);const data=await apiRequest(`/api/market/search?${params}`);renderSearchResults(data.results||[])}catch(error){renderSearchResults([],error.message||'Search failed')}finally{button.disabled=false;button.textContent='Search ETFs'}}
 async function addExactSymbol(){const input=$('#manualEtfSymbol'),symbol=input.value.trim().toUpperCase();if(!symbol){toast('Enter an ETF symbol.','warn');return}const button=$('#manualEtfAddBtn');button.disabled=true;button.textContent='Adding…';try{const data=await apiRequest(`/api/market/catalog/resolve?symbol=${encodeURIComponent(symbol)}`);addEtf(data.result);input.value=''}catch(error){toast(error.message||'Could not add this symbol.','warn')}finally{button.disabled=false;button.textContent='Add symbol'}}
@@ -975,59 +1117,51 @@ $('#etfSearchInput').addEventListener('keydown',event=>{if(event.key==='Enter'){
 $('#manualEtfAddBtn').addEventListener('click',addExactSymbol);
 $('#manualEtfSymbol').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();addExactSymbol()}});
 $('#etfSearchResults').addEventListener('click',event=>{const index=event.target.dataset.addSearch;if(index===undefined)return;const item=event.currentTarget._results?.[Number(index)];if(item)addEtf(item)});
-/* NORTHSTAR_V22_TARGET_EVENTS_START */
-let allocationSaveTimer=null;
-function persistAllocationEditor(){
-  clearTimeout(allocationSaveTimer);
-  allocationSaveTimer=setTimeout(()=>save(),450);
+/* NORTHSTAR_V23_TARGET_EVENTS_START */
+function applyAllocationEditor(input){
+ const targetId=input.dataset.etfTarget;
+ const monthlyId=input.dataset.etfMonthly;
+ if(targetId&&state.assets[targetId]){
+  rebalanceTargetFromEditor(targetId,input.value);
+ }
+ if(monthlyId&&state.assets[monthlyId]){
+  state.assets[monthlyId].monthly=Math.max(0,Number(input.value)||0);
+  targetsFromMonthlyAmounts();
+ }
 }
-function commitAllocationEditor(input){
-  const targetId=input.dataset.etfTarget;
-  const monthlyId=input.dataset.etfMonthly;
-  if(targetId&&state.assets[targetId]){
-    const percentage=Math.max(0,Math.min(100,Number(input.value)||0));
-    setAssetTarget(targetId,percentage/100);
-    input.value=percentage.toFixed(1);
-  }
-  if(monthlyId&&state.assets[monthlyId]){
-    const monthly=Math.max(0,Number(input.value)||0);
-    state.assets[monthlyId].monthly=monthly;
-    input.value=String(Math.round(monthly));
-    state.profile.monthlyInvestment=Object.values(state.assets).reduce((sum,asset)=>sum+(Number(asset.monthly)||0),0);
-  }
-  refreshTargetSummary();
-  save();
-  renderOverview();
-  renderLab();
+function refreshAllocationEditorValues(activeInput){
+ document.querySelectorAll('[data-etf-target]').forEach(input=>{
+  if(input!==activeInput&&state.assets[input.dataset.etfTarget])input.value=((Number(state.assets[input.dataset.etfTarget].target)||0)*100).toFixed(1);
+ });
+ document.querySelectorAll('[data-etf-monthly]').forEach(input=>{
+  if(input!==activeInput&&state.assets[input.dataset.etfMonthly])input.value=Math.round(Number(state.assets[input.dataset.etfMonthly].monthly)||0);
+ });
+ refreshTargetSummary();
 }
 $('#selectedEtfList').addEventListener('input',event=>{
-  const targetId=event.target.dataset.etfTarget;
-  const monthlyId=event.target.dataset.etfMonthly;
-  if(targetId&&state.assets[targetId]){
-    const value=Number(event.target.value);
-    if(Number.isFinite(value))setAssetTarget(targetId,value/100);
-  }
-  if(monthlyId&&state.assets[monthlyId]){
-    const value=Number(event.target.value);
-    if(Number.isFinite(value)){
-      state.assets[monthlyId].monthly=Math.max(0,value);
-      state.profile.monthlyInvestment=Object.values(state.assets).reduce((sum,asset)=>sum+(Number(asset.monthly)||0),0);
-    }
-  }
-  refreshTargetSummary();
-  persistAllocationEditor();
+ const input=event.target.closest('[data-etf-target],[data-etf-monthly]');
+ if(!input)return;
+ applyAllocationEditor(input);
+ refreshAllocationEditorValues(input);
 });
-$('#selectedEtfList').addEventListener('focusout',event=>{
-  if(event.target.dataset.etfTarget||event.target.dataset.etfMonthly)commitAllocationEditor(event.target);
+$('#selectedEtfList').addEventListener('change',event=>{
+ const input=event.target.closest('[data-etf-target],[data-etf-monthly]');
+ if(!input)return;
+ applyAllocationEditor(input);
+ save();renderAll();
 });
 $('#selectedEtfList').addEventListener('keydown',event=>{
-  if(event.key==='Enter'&&(event.target.dataset.etfTarget||event.target.dataset.etfMonthly)){
-    event.preventDefault();
-    commitAllocationEditor(event.target);
-    event.target.blur();
-  }
+ const input=event.target.closest('[data-etf-target],[data-etf-monthly]');
+ if(input&&event.key==='Enter'){event.preventDefault();input.blur()}
 });
-/* NORTHSTAR_V22_TARGET_EVENTS_END */
+$('#selectedEtfList').addEventListener('click',event=>{
+ const button=event.target.closest('[data-remove-etf]');
+ if(button)removeEtf(button.dataset.removeEtf);
+});
+$('#normalizeTargetsBtn').addEventListener('click',()=>{
+ normalizeTargets();save();renderAll();toast('Targets were scaled proportionally to exactly 100%.');
+});
+/* NORTHSTAR_V23_TARGET_EVENTS_END */
 /* NORTHSTAR_V20_TARGET_EVENTS_END */
 $('#selectedEtfList').addEventListener('click',event=>{const id=event.target.dataset.removeEtf;if(id)removeEtf(id)});
 $('#normalizeTargetsBtn').addEventListener('click',()=>{if(!Object.keys(state.assets).length){toast('Add an ETF first.','warn');return}normalizeTargets();save();renderAll();toast('Targets balanced to 100%.')});
