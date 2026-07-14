@@ -108,16 +108,21 @@ def _throttle() -> None:
         _LAST_REQUEST_AT = time.monotonic()
 
 
-def _fetch_json(url: str, *, timeout: float = 9.0) -> dict:
+def _fetch_json(url: str, *, timeout: float = 9.0, fresh: bool = False) -> dict:
     _throttle()
-    request = Request(
-        url,
-        headers={
-            "Accept": "application/json,text/plain,*/*",
-            "Accept-Language": "en-GB,en;q=0.9",
-            "User-Agent": "Mozilla/5.0 AppleWebKit/537.36 Chrome/126 Safari/537.36 Northstar/20",
-        },
-    )
+    headers = {
+        "Accept": "application/json,text/plain,*/*",
+        "Accept-Language": "en-GB,en;q=0.9",
+        "User-Agent": "Mozilla/5.0 AppleWebKit/537.36 Chrome/126 Safari/537.36 Northstar/22",
+    }
+    if fresh:
+        headers.update(
+            {
+                "Cache-Control": "no-cache, no-store, max-age=0",
+                "Pragma": "no-cache",
+            }
+        )
+    request = Request(url, headers=headers)
     try:
         with urlopen(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
@@ -134,8 +139,6 @@ def _fetch_json(url: str, *, timeout: float = 9.0) -> dict:
         raise RuntimeError("Market service timed out.") from exc
     except json.JSONDecodeError as exc:
         raise RuntimeError("Market service returned invalid JSON.") from exc
-
-
 def _cached_payload(
     key: tuple[str, str],
     loader,
@@ -170,23 +173,33 @@ def _cached_payload(
     return value, "refreshed"
 
 
-def _chart_payload(symbol: str, range_: str) -> dict:
+def _chart_payload(
+    symbol: str,
+    range_: str,
+    *,
+    interval: str = "1d",
+    fresh: bool = False,
+) -> dict:
     encoded = quote(symbol, safe="")
-    params = urlencode(
-        {
-            "range": range_,
-            "interval": "1d",
-            "events": "div,splits",
-            "includePrePost": "false",
-        }
-    )
+    params = {
+        "range": range_,
+        "interval": interval,
+        "events": "div,splits",
+        "includePrePost": "false",
+    }
+    if fresh:
+        params["northstar_ts"] = str(int(time.time() * 1000))
+    query = urlencode(params)
     hosts = ("query1.finance.yahoo.com", "query2.finance.yahoo.com")
     if sum(ord(char) for char in symbol) % 2:
         hosts = tuple(reversed(hosts))
     errors: list[str] = []
     for host in hosts:
         try:
-            data = _fetch_json(f"https://{host}/v8/finance/chart/{encoded}?{params}")
+            data = _fetch_json(
+                f"https://{host}/v8/finance/chart/{encoded}?{query}",
+                fresh=fresh,
+            )
             chart = data.get("chart") or {}
             if chart.get("error"):
                 raise RuntimeError(
@@ -197,13 +210,10 @@ def _chart_payload(symbol: str, range_: str) -> dict:
                 raise RuntimeError("No quote was returned.")
             return results[0]
         except MarketRateLimited:
-            # Both public hosts use the same quota. Do not double a 429 burst.
             raise
         except Exception as exc:
             errors.append(str(exc))
     raise RuntimeError(" | ".join(errors[-2:]) or "No quote was returned.")
-
-
 def _currency_parts(raw_currency: str | None) -> tuple[str, float]:
     raw = str(raw_currency or "EUR").strip()
     if raw in {"GBp", "GBX", "GBx", "GBPENCE"}:
@@ -211,7 +221,7 @@ def _currency_parts(raw_currency: str | None) -> tuple[str, float]:
     return raw.upper(), 1.0
 
 
-def _fx_to_eur(currency: str) -> tuple[float, str]:
+def _fx_to_eur(currency: str, *, force: bool = False) -> tuple[float, str]:
     currency = currency.upper()
     if currency == "EUR":
         return 1.0, "native"
@@ -220,8 +230,10 @@ def _fx_to_eur(currency: str) -> tuple[float, str]:
     pair = f"{currency}EUR=X"
     payload, status = _cached_payload(
         (pair, "5d"),
-        lambda: _chart_payload(pair, "5d"),
+        lambda: _chart_payload(pair, "5d", fresh=force),
         ttl=HISTORY_CACHE_SECONDS,
+        force=force,
+        allow_stale=not force,
     )
     meta = payload.get("meta") or {}
     price = _finite(meta.get("regularMarketPrice"))
@@ -237,8 +249,6 @@ def _fx_to_eur(currency: str) -> tuple[float, str]:
     if not price or price <= 0:
         raise RuntimeError(f"Could not convert {currency} prices to EUR.")
     return price, status
-
-
 def normalize(symbol: str, range_: str = "5d", *, force: bool = False) -> dict:
     symbol = normalize_symbol(symbol)
     if not is_supported_symbol(symbol):
@@ -246,36 +256,52 @@ def normalize(symbol: str, range_: str = "5d", *, force: bool = False) -> dict:
     if range_ not in RANGES:
         range_ = "5d"
 
+    intraday_refresh = force and range_ == "5d"
+    provider_range = "1d" if intraday_refresh else range_
+    interval = "1m" if intraday_refresh else "1d"
     ttl = QUOTE_CACHE_SECONDS if range_ == "5d" else HISTORY_CACHE_SECONDS
+    cache_key = (symbol, f"{provider_range}:{interval}")
     payload, quote_status = _cached_payload(
-        (symbol, range_),
-        lambda: _chart_payload(symbol, range_),
+        cache_key,
+        lambda: _chart_payload(
+            symbol,
+            provider_range,
+            interval=interval,
+            fresh=force,
+        ),
         ttl=ttl,
         force=force,
         allow_stale=not force,
     )
+
     meta = payload.get("meta") or {}
     timestamps = payload.get("timestamp") or []
     quote_rows = (payload.get("indicators") or {}).get("quote") or []
     closes = (quote_rows[0] if quote_rows else {}).get("close") or []
-
     native_currency, unit_scale = _currency_parts(meta.get("currency"))
-    fx, fx_status = _fx_to_eur(native_currency)
+    fx, fx_status = _fx_to_eur(native_currency, force=force)
     multiplier = unit_scale * fx
 
-    history: list[dict] = []
-    for timestamp, close in zip(timestamps, closes):
-        value = _finite(close)
-        if value is None or value <= 0:
+    native_closes = [_finite(value) for value in closes]
+    latest_native_close = next(
+        (value for value in reversed(native_closes) if value and value > 0),
+        None,
+    )
+    history_by_date: dict[str, float] = {}
+    for timestamp, close in zip(timestamps, native_closes):
+        if close is None or close <= 0:
             continue
-        history.append(
-            {
-                "date": datetime.fromtimestamp(int(timestamp), UTC).date().isoformat(),
-                "close": value * multiplier,
-            }
-        )
+        day = datetime.fromtimestamp(int(timestamp), UTC).date().isoformat()
+        history_by_date[day] = close * multiplier
+    history = [
+        {"date": day, "close": value}
+        for day, value in sorted(history_by_date.items())
+    ]
 
-    native_price = _finite(meta.get("regularMarketPrice"))
+    meta_price = _finite(meta.get("regularMarketPrice"))
+    native_price = latest_native_close if force and latest_native_close else meta_price
+    if native_price is None:
+        native_price = latest_native_close
     if native_price is None and history:
         price_eur = history[-1]["close"]
         native_price = price_eur / multiplier
@@ -292,7 +318,7 @@ def normalize(symbol: str, range_: str = "5d", *, force: bool = False) -> dict:
         if previous_native is not None
         else (history[-2]["close"] if len(history) > 1 else None)
     )
-    market_timestamp = meta.get("regularMarketTime")
+    market_timestamp = timestamps[-1] if force and timestamps else meta.get("regularMarketTime")
     market_time = (
         datetime.fromtimestamp(int(market_timestamp), UTC)
         .isoformat()
@@ -302,7 +328,7 @@ def normalize(symbol: str, range_: str = "5d", *, force: bool = False) -> dict:
     )
     suffix, exchange_name = exchange_for_symbol(symbol)
     stale = quote_status == "stale" or fx_status == "stale"
-
+    source_detail = "fresh upstream quote" if force else "cached market quote"
     return {
         "symbol": symbol,
         "ticker": symbol.split(".")[0],
@@ -319,11 +345,11 @@ def normalize(symbol: str, range_: str = "5d", *, force: bool = False) -> dict:
         "marketTime": market_time,
         "marketState": meta.get("marketState"),
         "source": (
-            f"European exchange data · {exchange_name} · EUR-normalised"
+            f"European exchange data · {exchange_name} · EUR-normalised · {source_detail}"
             + (" · stale fallback" if stale else "")
         ),
         "stale": stale,
         "cacheStatus": quote_status,
-        "fresh": quote_status == "refreshed",
+        "fresh": force and quote_status == "refreshed",
         "history": history,
     }
