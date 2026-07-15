@@ -88,10 +88,24 @@ SYMBOL_RE = re.compile(r"^[A-Z0-9][A-Z0-9.\-]{1,30}$")
 RANGES = {"5d", "1mo", "3mo", "6mo", "1y", "2y", "3y", "5y"}
 RANGE_DAYS = {"5d": 14, "1mo": 45, "3mo": 120, "6mo": 220, "1y": 400, "2y": 800, "3y": 1200, "5y": 2000}
 
+# A modern browser UA is required — Stooq and Yahoo block custom bot agents from cloud IPs.
+_BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36"
+)
+
 _CACHE: dict[tuple[str, ...], tuple[float, dict]] = {}
 _CACHE_LOCK = threading.Lock()
 _REQUEST_LOCK = threading.Lock()
 _LAST_REQUEST_AT = 0.0
+
+# Yahoo Finance requires a crumb + session cookie since 2024.
+# We fetch it once, cache it for ~50 minutes, and attach it to every chart request.
+_YF_CRUMB: str = ""
+_YF_COOKIE: str = ""
+_YF_SESSION_AT: float = 0.0
+_YF_LOCK = threading.Lock()
 
 QUOTE_CACHE_SECONDS = max(15, int(os.getenv("MARKET_QUOTE_CACHE_SECONDS", "300")))
 HISTORY_CACHE_SECONDS = max(300, int(os.getenv("MARKET_HISTORY_CACHE_SECONDS", "21600")))
@@ -163,18 +177,27 @@ def _throttle() -> None:
         _LAST_REQUEST_AT = time.monotonic()
 
 
-def _request(url: str, *, accept: str, timeout: float = 10.0, fresh: bool = False) -> bytes:
+def _request(
+    url: str,
+    *,
+    accept: str,
+    timeout: float = 10.0,
+    fresh: bool = False,
+    extra_headers: dict | None = None,
+) -> bytes:
     _throttle()
     if fresh:
         separator = "&" if "?" in url else "?"
         url = f"{url}{separator}northstar_ts={time.time_ns()}"
-    headers = {
+    headers: dict[str, str] = {
         "Accept": accept,
-        "Accept-Language": "en-GB,en;q=0.9",
-        "User-Agent": "Northstar/24 (+personal portfolio dashboard)",
+        "Accept-Language": "en-US,en;q=0.9",
+        "User-Agent": _BROWSER_UA,
     }
     if fresh:
         headers.update({"Cache-Control": "no-cache, no-store, max-age=0", "Pragma": "no-cache"})
+    if extra_headers:
+        headers.update(extra_headers)
     request = Request(url, headers=headers)
     try:
         with urlopen(request, timeout=timeout) as response:
@@ -188,6 +211,81 @@ def _request(url: str, *, accept: str, timeout: float = 10.0, fresh: bool = Fals
         raise RuntimeError(f"Could not reach the market service: {exc.reason}") from exc
     except TimeoutError as exc:
         raise RuntimeError("Market service timed out.") from exc
+
+
+def _yf_refresh_session() -> None:
+    """Fetch a Yahoo Finance cookie + crumb and cache them for ~50 minutes."""
+    global _YF_CRUMB, _YF_COOKIE, _YF_SESSION_AT
+    try:
+        # Step 1: hit Yahoo's consent endpoint to receive the session cookies.
+        consent_req = Request(
+            "https://fc.yahoo.com/",
+            headers={"User-Agent": _BROWSER_UA, "Accept": "*/*"},
+        )
+        try:
+            with urlopen(consent_req, timeout=8) as r:
+                raw_cookie = r.headers.get("Set-Cookie") or ""
+        except Exception:
+            raw_cookie = ""
+
+        # Parse individual key=value pairs from the Set-Cookie header.
+        cookie_parts: list[str] = []
+        for segment in raw_cookie.split(","):
+            kv = segment.strip().split(";")[0].strip()
+            if "=" in kv:
+                cookie_parts.append(kv)
+        cookie_str = "; ".join(cookie_parts)
+
+        # Step 2: exchange the cookie for a crumb.
+        crumb_req = Request(
+            "https://query1.finance.yahoo.com/v1/test/getcrumb",
+            headers={
+                "User-Agent": _BROWSER_UA,
+                "Cookie": cookie_str or "B=x",
+                "Accept": "*/*",
+                "Referer": "https://finance.yahoo.com/",
+            },
+        )
+        with urlopen(crumb_req, timeout=8) as r:
+            crumb = r.read().decode("utf-8").strip()
+
+        if crumb and not crumb.startswith("{") and 3 < len(crumb) < 60:
+            with _YF_LOCK:
+                _YF_CRUMB = crumb
+                _YF_COOKIE = cookie_str
+                _YF_SESSION_AT = time.monotonic()
+    except Exception:
+        pass  # Keep the existing crumb if refresh fails.
+
+
+def _yf_session() -> tuple[str, str]:
+    """Return (crumb, cookie), refreshing if stale or missing."""
+    with _YF_LOCK:
+        age = time.monotonic() - _YF_SESSION_AT
+        crumb, cookie = _YF_CRUMB, _YF_COOKIE
+    if not crumb or age > 3000:
+        _yf_refresh_session()
+        with _YF_LOCK:
+            crumb, cookie = _YF_CRUMB, _YF_COOKIE
+    return crumb, cookie
+
+
+def _fetch_json_yf(url: str) -> dict:
+    """Fetch JSON from Yahoo Finance, attaching the cached crumb + cookie."""
+    crumb, cookie = _yf_session()
+    if crumb:
+        sep = "&" if "?" in url else "?"
+        url = f"{url}{sep}crumb={quote(crumb, safe='')}"
+    extra: dict[str, str] = {
+        "Referer": "https://finance.yahoo.com/",
+    }
+    if cookie:
+        extra["Cookie"] = cookie
+    try:
+        raw = _request(url, accept="application/json,text/plain,*/*", timeout=12, extra_headers=extra)
+        return json.loads(raw.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Yahoo Finance returned invalid JSON.") from exc
 
 
 def _fetch_json(url: str, *, timeout: float = 10.0, fresh: bool = False) -> dict:
@@ -509,7 +607,11 @@ def _stooq_history(symbol: str, range_: str) -> dict:
 def _yahoo_history(symbol: str, range_: str) -> dict:
     encoded = quote(symbol, safe="")
     params = urlencode({"range": range_, "interval": "1d", "events": "div,splits", "includePrePost": "false"})
-    data = _fetch_json(f"https://query1.finance.yahoo.com/v8/finance/chart/{encoded}?{params}")
+    # Use crumb-authenticated helper; fall back to query2 host if query1 fails.
+    try:
+        data = _fetch_json_yf(f"https://query1.finance.yahoo.com/v8/finance/chart/{encoded}?{params}")
+    except RuntimeError:
+        data = _fetch_json_yf(f"https://query2.finance.yahoo.com/v8/finance/chart/{encoded}?{params}")
     chart = data.get("chart") or {}
     if chart.get("error"):
         raise RuntimeError(chart["error"].get("description") or str(chart["error"]))
