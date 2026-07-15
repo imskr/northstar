@@ -2,30 +2,26 @@
 
 ![Northstar login](docs/auth-screen.png)
 
-A private, open-source ETF portfolio ledger for long-term investors. Northstar tracks fractional positions, weighted average cost, realised and unrealised P&L, Xetra quotes, allocation drift, benchmark comparisons, goal projections, and quarterly reviews.
+A private, open-source ETF portfolio ledger for long-term investors. Northstar tracks fractional positions, weighted average cost, realised and unrealised P&L, allocation drift, benchmark comparisons, goal projections, and quarterly reviews — across **any ETF listed on 34 European exchanges**.
 
-The default portfolio is configured for:
-
-- **BCFP** — UBS Nasdaq-100 UCITS ETF USD Acc
-- **SEC0** — iShares MSCI Global Semiconductors UCITS ETF
-- **EMSM** — Invesco MSCI Emerging Markets UCITS ETF Acc
+Search the built-in ETF catalog by name, ticker, or ISIN, pick the exact exchange listing you trade, and Northstar normalises every position to EUR for a single comparable view. You are not limited to any preset selection of funds.
 
 > Northstar is a personal tracking tool. It is not a broker, tax engine, trading system, or investment adviser.
 
 ## Highlights
 
+- **Open ETF catalog** — search by name, ticker, or ISIN across 34 European exchanges, or add any symbol directly
+- **EUR normalisation** — non-EUR listings (GBP, CHF, SEK, …) are converted so every position is comparable
+- **Market data without an API key** — delayed quotes via Stooq + Yahoo Finance out of the box; upgrade to real-time with a free Twelve Data key
 - Modern Ledger editorial interface
-- Secure email/password login
-- HttpOnly database-backed sessions
-- Local SQLite development with zero configuration
-- Turso/libSQL production support
+- Secure email/password login with HttpOnly database-backed sessions
+- Local SQLite development with zero configuration; Turso/libSQL in production
 - Normalised transaction table plus portfolio-state persistence
 - Fractional shares and weighted average entry prices
 - Optional realised P&L override for sell transactions
-- Official Xetra last-trade valuation path
 - Animated portfolio and benchmark charts
 - Allocation drift and contribution-based rebalancing
-- €100k goal ETA and an interactive “one extra decision” slider
+- €100k goal ETA and an interactive "one extra decision" slider
 - JSON export/import for portable backups
 - Docker, Render, and GitHub Actions configuration
 
@@ -39,7 +35,10 @@ Browser
        ├─ Flask authentication + sessions
        ├─ Portfolio state API
        ├─ Normalised trade storage
-       ├─ Xetra quote proxy
+       ├─ European ETF market proxy (34 exchanges, EUR-normalised)
+       │    ├─ Twelve Data  — real-time (optional API key)
+       │    ├─ Stooq        — delayed fallback
+       │    └─ Yahoo Finance — delayed fallback
        └─ SQLite locally / Turso in production
 ```
 
@@ -212,19 +211,21 @@ ruff check northstar tests scripts
 ```text
 northstar-portfolio/
 ├── northstar/
-│   ├── __init__.py
-│   ├── auth.py
-│   ├── db.py
-│   ├── market_api.py
-│   ├── market_provider.py
+│   ├── __init__.py        # app factory, security headers
+│   ├── auth.py            # login, register, logout, sessions
+│   ├── db.py              # SQLite + Turso database layer
+│   ├── etf_catalog.py     # local ETF catalog (search by name/ISIN/ticker)
+│   ├── market_api.py      # /api/market — quote + history endpoints
+│   ├── market_provider.py # Twelve Data / Stooq / Yahoo fallback chain
 │   ├── models.py
-│   ├── security.py
-│   └── state_api.py
-├── static/index.html
+│   ├── security.py        # hashing, token generation
+│   └── state_api.py       # portfolio state + trades persistence
+├── static/index.html      # single-page app (all UI + JS)
 ├── scripts/
 ├── tests/
 ├── docs/
 ├── schema.sql
+├── .env.example           # local dev environment template
 ├── requirements.txt
 ├── requirements-turso.txt
 ├── Dockerfile
@@ -245,7 +246,9 @@ For moving between domains or browsers:
 
 ## Market data note
 
-The portfolio values use the official Xetra last-trade path exposed through the server-side market proxy. Benchmark and chart history may use a separate historical source. Exchange quotes can be delayed and can differ from broker-indicative or ask prices.
+Northstar fetches quotes only for the exact exchange listings in your portfolio and normalises them to EUR. No API key is required — Stooq and Yahoo Finance are used as delayed fallbacks. For real-time pricing, add a free [Twelve Data](https://twelvedata.com) key via `TWELVE_DATA_API_KEY`.
+
+Supported exchanges include Xetra, Frankfurt, London, Euronext (Paris, Amsterdam, Brussels, Lisbon), Borsa Italiana, Nasdaq Nordic, and more — see `northstar/market_provider.py` for the full list. Quotes can be delayed and may differ from broker-indicative or ask prices.
 
 ## Contributing
 

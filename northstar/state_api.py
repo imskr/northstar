@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import math
+import re
 import time
 
 from flask import Blueprint, g, jsonify, request
@@ -12,7 +13,10 @@ from .db import Statement, get_database, using_turso
 from .security import iso, utcnow
 
 bp = Blueprint("state_api", __name__, url_prefix="/api")
-ASSETS = {"bcfp", "sec0", "emsm"}
+# Dynamic ETF asset IDs look like "etf_vwce_de" (prefix + lowercased symbol with underscores).
+# Legacy IDs ("bcfp", "sec0", "emsm") are also lowercase alphanumeric.
+# We validate the general shape rather than an exhaustive allow-list.
+_ASSET_RE = re.compile(r"^[a-z0-9][a-z0-9_]{0,39}$")
 
 
 def _finite(value, default=None):
@@ -32,7 +36,7 @@ def _clean_trade(raw):
     price = _finite(raw.get("price"))
     fee = _finite(raw.get("fee"), 0.0)
     date = str(raw.get("date", ""))[:10]
-    if asset not in ASSETS or trade_type not in {"buy", "sell"}:
+    if not _ASSET_RE.match(asset) or trade_type not in {"buy", "sell"}:
         raise ValueError("Invalid transaction asset or type.")
     if not shares or shares <= 0 or not price or price <= 0 or fee is None or fee < 0:
         raise ValueError("Transaction shares, price, or fee is invalid.")
