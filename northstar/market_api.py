@@ -9,12 +9,14 @@ from .auth import login_required
 from .etf_catalog import catalog_stats, resolve_symbol, search_catalog
 from .market_provider import (
     EUROPEAN_EXCHANGES,
+    clear_request_td_key,
     is_supported_symbol,
     normalize,
     normalize_history_batch,
     normalize_quote_batch,
     normalize_symbol,
     real_time_configured,
+    set_request_td_key,
     twelve_diagnostics,
 )
 
@@ -53,6 +55,21 @@ def _fallback_many(symbols: list[str], range_: str, *, include_history: bool, fr
 @bp.get("/market")
 @login_required
 def market():
+    # Accept a user-supplied Twelve Data key via ?twkey= so users without
+    # server-side env vars can still get real-time prices by entering their
+    # free key in Settings.
+    user_td_key = request.args.get("twkey", "").strip()
+    if user_td_key:
+        set_request_td_key(user_td_key)
+
+    try:
+        return _market_handler()
+    finally:
+        if user_td_key:
+            clear_request_td_key()
+
+
+def _market_handler():
     symbols = list(dict.fromkeys(normalize_symbol(value) for value in request.args.get("symbols", "").split(",") if value.strip()))
     if not symbols:
         return jsonify({"error": "Add at least one ETF symbol."}), 400

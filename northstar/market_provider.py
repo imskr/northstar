@@ -124,6 +124,11 @@ _CACHE_LOCK = threading.Lock()
 _REQUEST_LOCK = threading.Lock()
 _LAST_REQUEST_AT = 0.0
 
+# Thread-local storage for a per-request Twelve Data key supplied by the user.
+# The /api/market endpoint sets this so _twelve_key() picks it up without
+# changing all function signatures.
+_request_td_key: threading.local = threading.local()
+
 # Yahoo Finance requires a session cookie + crumb since 2024.
 # We use a proper http.cookiejar opener so cookies are handled transparently.
 _yf_jar = http.cookiejar.CookieJar()
@@ -176,7 +181,17 @@ def is_supported_symbol(symbol: str) -> bool:
 
 
 def real_time_configured() -> bool:
-    return bool(os.getenv("TWELVE_DATA_API_KEY", "").strip())
+    user_key = getattr(_request_td_key, "value", "").strip()
+    return bool(user_key or os.getenv("TWELVE_DATA_API_KEY", "").strip())
+
+
+def set_request_td_key(key: str) -> None:
+    """Set the Twelve Data key for the current request thread."""
+    _request_td_key.value = (key or "").strip()
+
+
+def clear_request_td_key() -> None:
+    _request_td_key.value = ""
 
 
 def _retry_after(headers) -> int | None:
@@ -400,9 +415,13 @@ def _twelve_identifier(symbol: str) -> str:
 
 
 def _twelve_key() -> str:
-    key = os.getenv("TWELVE_DATA_API_KEY", "").strip()
+    # User-supplied key (via /api/market?twkey=…) takes precedence over env var.
+    key = getattr(_request_td_key, "value", "").strip() or os.getenv("TWELVE_DATA_API_KEY", "").strip()
     if not key:
-        raise RuntimeError("TWELVE_DATA_API_KEY is not configured in the running Render service.")
+        raise RuntimeError(
+            "No Twelve Data API key found. Add a free key at twelvedata.com, "
+            "then enter it in Northstar Settings → Twelve Data API key."
+        )
     return key
 
 
