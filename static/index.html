@@ -543,6 +543,10 @@ html.auth-pending .auth-boot{display:grid}
 @media(max-width:960px){.selected-etf{grid-template-columns:minmax(220px,1.5fr) repeat(3,minmax(100px,.6fr))!important}.selected-etf .delete{grid-column:1/-1;justify-self:start}}
 @media(max-width:720px){.selected-etf{grid-template-columns:1fr 1fr!important}.selected-etf-id{grid-column:1/-1}.allocation-readout{min-height:58px}.selected-etf .delete{grid-column:1/-1}}
 /* NORTHSTAR_V23_ALLOCATION_UI_END */
+/* Settings modal scroll fix */
+#settingsModal .modal{display:flex!important;flex-direction:column!important}
+#settingsModal .modal-head{flex:0 0 auto!important}
+#settingsModal .modal-body{flex:1 1 auto!important;min-height:0!important;overflow-y:auto!important}
 </style>
 </head>
 <body>

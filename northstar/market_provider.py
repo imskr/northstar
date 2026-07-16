@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import http.cookiejar
 import io
 import json
 import math
@@ -8,6 +9,7 @@ import os
 import re
 import threading
 import time
+import urllib.request
 from datetime import UTC, date, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from urllib.error import HTTPError, URLError
@@ -122,12 +124,14 @@ _CACHE_LOCK = threading.Lock()
 _REQUEST_LOCK = threading.Lock()
 _LAST_REQUEST_AT = 0.0
 
-# Yahoo Finance requires a crumb + session cookie since 2024.
-# We fetch it once, cache it for ~50 minutes, and attach it to every chart request.
-_YF_CRUMB: str = ""
-_YF_COOKIE: str = ""
-_YF_SESSION_AT: float = 0.0
-_YF_LOCK = threading.Lock()
+# Yahoo Finance requires a session cookie + crumb since 2024.
+# We use a proper http.cookiejar opener so cookies are handled transparently.
+_yf_jar = http.cookiejar.CookieJar()
+_yf_opener: urllib.request.OpenerDirector | None = None
+_yf_opener_lock = threading.Lock()
+_yf_crumb: str = ""
+_yf_crumb_at: float = 0.0
+_yf_crumb_lock = threading.Lock()
 
 QUOTE_CACHE_SECONDS = max(15, int(os.getenv("MARKET_QUOTE_CACHE_SECONDS", "300")))
 HISTORY_CACHE_SECONDS = max(300, int(os.getenv("MARKET_HISTORY_CACHE_SECONDS", "21600")))
@@ -235,79 +239,100 @@ def _request(
         raise RuntimeError("Market service timed out.") from exc
 
 
-def _yf_refresh_session() -> None:
-    """Fetch a Yahoo Finance cookie + crumb and cache them for ~50 minutes."""
-    global _YF_CRUMB, _YF_COOKIE, _YF_SESSION_AT
-    try:
-        # Step 1: hit Yahoo's consent endpoint to receive the session cookies.
-        consent_req = Request(
-            "https://fc.yahoo.com/",
-            headers={"User-Agent": _BROWSER_UA, "Accept": "*/*"},
-        )
+def _yf_get_opener() -> urllib.request.OpenerDirector:
+    """Return (creating if needed) the module-level Yahoo Finance opener."""
+    global _yf_opener
+    with _yf_opener_lock:
+        if _yf_opener is None:
+            _yf_opener = urllib.request.build_opener(
+                urllib.request.HTTPCookieProcessor(_yf_jar)
+            )
+    return _yf_opener
+
+
+def _yf_refresh_crumb() -> str:
+    """Visit finance.yahoo.com to establish session cookies, then fetch a crumb."""
+    opener = _yf_get_opener()
+    # Establish session cookies via Yahoo Finance's landing page.
+    for init_url in ["https://finance.yahoo.com/", "https://yahoo.com/"]:
         try:
-            with urlopen(consent_req, timeout=8) as r:
-                raw_cookie = r.headers.get("Set-Cookie") or ""
+            req = urllib.request.Request(
+                init_url,
+                headers={
+                    "User-Agent": _BROWSER_UA,
+                    "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.5",
+                },
+            )
+            with opener.open(req, timeout=10):
+                pass
+            break
         except Exception:
-            raw_cookie = ""
-
-        # Parse individual key=value pairs from the Set-Cookie header.
-        cookie_parts: list[str] = []
-        for segment in raw_cookie.split(","):
-            kv = segment.strip().split(";")[0].strip()
-            if "=" in kv:
-                cookie_parts.append(kv)
-        cookie_str = "; ".join(cookie_parts)
-
-        # Step 2: exchange the cookie for a crumb.
-        crumb_req = Request(
-            "https://query1.finance.yahoo.com/v1/test/getcrumb",
-            headers={
-                "User-Agent": _BROWSER_UA,
-                "Cookie": cookie_str or "B=x",
-                "Accept": "*/*",
-                "Referer": "https://finance.yahoo.com/",
-            },
-        )
-        with urlopen(crumb_req, timeout=8) as r:
-            crumb = r.read().decode("utf-8").strip()
-
-        if crumb and not crumb.startswith("{") and 3 < len(crumb) < 60:
-            with _YF_LOCK:
-                _YF_CRUMB = crumb
-                _YF_COOKIE = cookie_str
-                _YF_SESSION_AT = time.monotonic()
-    except Exception:
-        pass  # Keep the existing crumb if refresh fails.
+            continue
+    # Retrieve the crumb using the now-established cookies.
+    for host in ("query2", "query1"):
+        try:
+            req = urllib.request.Request(
+                f"https://{host}.finance.yahoo.com/v1/test/getcrumb",
+                headers={
+                    "User-Agent": _BROWSER_UA,
+                    "Accept": "*/*",
+                    "Referer": "https://finance.yahoo.com/",
+                },
+            )
+            with opener.open(req, timeout=8) as r:
+                crumb = r.read().decode("utf-8").strip()
+                if crumb and 3 < len(crumb) < 60 and not crumb.startswith("<"):
+                    return crumb
+        except Exception:
+            continue
+    return ""
 
 
-def _yf_session() -> tuple[str, str]:
-    """Return (crumb, cookie), refreshing if stale or missing."""
-    with _YF_LOCK:
-        age = time.monotonic() - _YF_SESSION_AT
-        crumb, cookie = _YF_CRUMB, _YF_COOKIE
-    if not crumb or age > 3000:
-        _yf_refresh_session()
-        with _YF_LOCK:
-            crumb, cookie = _YF_CRUMB, _YF_COOKIE
-    return crumb, cookie
+def _yf_get_crumb() -> str:
+    """Return a cached Yahoo Finance crumb, refreshing if older than 50 minutes."""
+    global _yf_crumb, _yf_crumb_at
+    with _yf_crumb_lock:
+        if _yf_crumb and time.monotonic() - _yf_crumb_at < 3000:
+            return _yf_crumb
+    crumb = _yf_refresh_crumb()
+    if crumb:
+        with _yf_crumb_lock:
+            _yf_crumb = crumb
+            _yf_crumb_at = time.monotonic()
+    return crumb
 
 
 def _fetch_json_yf(url: str) -> dict:
-    """Fetch JSON from Yahoo Finance, attaching the cached crumb + cookie."""
-    crumb, cookie = _yf_session()
+    """Fetch JSON from Yahoo Finance using the managed cookie jar + crumb."""
+    crumb = _yf_get_crumb()
     if crumb:
         sep = "&" if "?" in url else "?"
         url = f"{url}{sep}crumb={quote(crumb, safe='')}"
-    extra: dict[str, str] = {
-        "Referer": "https://finance.yahoo.com/",
-    }
-    if cookie:
-        extra["Cookie"] = cookie
+    opener = _yf_get_opener()
+    _throttle()
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": _BROWSER_UA,
+            "Accept": "application/json,text/plain,*/*",
+            "Referer": "https://finance.yahoo.com/",
+        },
+    )
     try:
-        raw = _request(url, accept="application/json,text/plain,*/*", timeout=12, extra_headers=extra)
-        return json.loads(raw.decode("utf-8"))
+        with opener.open(req, timeout=12) as r:
+            return json.loads(r.read().decode("utf-8"))
     except json.JSONDecodeError as exc:
         raise RuntimeError("Yahoo Finance returned invalid JSON.") from exc
+    except urllib.error.HTTPError as exc:
+        if exc.code == 429:
+            raise MarketRateLimited(_retry_after(exc.headers)) from exc
+        body = exc.read().decode("utf-8", "replace")[:300]
+        raise RuntimeError(f"Yahoo Finance returned HTTP {exc.code}: {body or exc.reason}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Could not reach Yahoo Finance: {exc.reason}") from exc
+    except (TimeoutError, OSError) as exc:
+        raise RuntimeError("Yahoo Finance request timed out.") from exc
 
 
 def _fetch_json(url: str, *, timeout: float = 10.0, fresh: bool = False) -> dict:
@@ -752,21 +777,17 @@ def _load_quote(symbol: str, *, prefer_realtime: bool = True) -> dict:
             return _twelve_quote(symbol)
         except (MarketRateLimited, MarketEntitlementError, RuntimeError) as exc:
             errors.append(f"Twelve Data: {exc}")
-    # EODHD demo API — completely free, no IP restrictions, works from any cloud server.
-    try:
-        payload = _eodhd_quote(symbol)
-        payload["provider_errors"] = errors.copy()
-        return payload
-    except (MarketRateLimited, RuntimeError) as exc:
-        errors.append(f"EODHD: {exc}")
-    # Stooq — delayed, may be blocked from some cloud IPs.
-    try:
-        payload = _stooq_quote(symbol)
-        payload["provider_errors"] = errors.copy()
-        return payload
-    except (MarketRateLimited, RuntimeError) as exc:
-        errors.append(f"Stooq: {exc}")
-    # Yahoo Finance — delayed, requires crumb auth (handled automatically).
+    # EODHD — only when a non-demo token is explicitly configured.
+    # The EODHD demo key only covers AAPL.US and is useless for European ETFs.
+    _eodhd_token = os.getenv("EODHD_API_TOKEN", "").strip()
+    if _eodhd_token and _eodhd_token != "demo":
+        try:
+            payload = _eodhd_quote(symbol)
+            payload["provider_errors"] = errors.copy()
+            return payload
+        except (MarketRateLimited, RuntimeError) as exc:
+            errors.append(f"EODHD: {exc}")
+    # Yahoo Finance with cookie-jar session + crumb (primary free fallback).
     try:
         payload = _yahoo_history(symbol, "5d")
         payload["history"] = payload["history"][-2:]
@@ -774,6 +795,13 @@ def _load_quote(symbol: str, *, prefer_realtime: bool = True) -> dict:
         return payload
     except (MarketRateLimited, RuntimeError) as exc:
         errors.append(f"Yahoo: {exc}")
+    # Stooq — delayed, may be IP-blocked from some cloud regions.
+    try:
+        payload = _stooq_quote(symbol)
+        payload["provider_errors"] = errors.copy()
+        return payload
+    except (MarketRateLimited, RuntimeError) as exc:
+        errors.append(f"Stooq: {exc}")
     raise RuntimeError(" | ".join(errors) or f"No quote provider returned {symbol}.")
 
 
@@ -784,13 +812,22 @@ def _load_history(symbol: str, range_: str, *, prefer_realtime: bool = True) -> 
             return _twelve_history(symbol, range_)
         except (MarketRateLimited, MarketEntitlementError, RuntimeError) as exc:
             errors.append(f"Twelve Data: {exc}")
-    # EODHD — best free source for European ETF history from cloud servers.
+    # EODHD with real token.
+    _eodhd_token = os.getenv("EODHD_API_TOKEN", "").strip()
+    if _eodhd_token and _eodhd_token != "demo":
+        try:
+            payload = _eodhd_history(symbol, range_)
+            payload["provider_errors"] = errors.copy()
+            return payload
+        except (MarketRateLimited, RuntimeError) as exc:
+            errors.append(f"EODHD: {exc}")
+    # Yahoo Finance history (cookie-jar session, primary free source).
     try:
-        payload = _eodhd_history(symbol, range_)
+        payload = _yahoo_history(symbol, range_)
         payload["provider_errors"] = errors.copy()
         return payload
     except (MarketRateLimited, RuntimeError) as exc:
-        errors.append(f"EODHD: {exc}")
+        errors.append(f"Yahoo: {exc}")
     # Stooq history.
     try:
         payload = _stooq_history(symbol, range_)
@@ -798,13 +835,6 @@ def _load_history(symbol: str, range_: str, *, prefer_realtime: bool = True) -> 
         return payload
     except (MarketRateLimited, RuntimeError) as exc:
         errors.append(f"Stooq: {exc}")
-    # Yahoo Finance history.
-    try:
-        payload = _yahoo_history(symbol, range_)
-        payload["provider_errors"] = errors.copy()
-        return payload
-    except (MarketRateLimited, RuntimeError) as exc:
-        errors.append(f"Yahoo: {exc}")
     raise RuntimeError(" | ".join(errors) or f"No history provider returned {symbol}.")
 
 def _currency_parts(raw_currency: str | None) -> tuple[str, float]:
