@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import csv
-import http.cookiejar
 import io
 import json
 import math
@@ -9,7 +8,6 @@ import os
 import re
 import threading
 import time
-import urllib.request
 from datetime import UTC, date, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from urllib.error import HTTPError, URLError
@@ -129,14 +127,8 @@ _LAST_REQUEST_AT = 0.0
 # changing all function signatures.
 _request_td_key: threading.local = threading.local()
 
-# Yahoo Finance requires a session cookie + crumb since 2024.
-# We use a proper http.cookiejar opener so cookies are handled transparently.
-_yf_jar = http.cookiejar.CookieJar()
-_yf_opener: urllib.request.OpenerDirector | None = None
-_yf_opener_lock = threading.Lock()
-_yf_crumb: str = ""
-_yf_crumb_at: float = 0.0
-_yf_crumb_lock = threading.Lock()
+# Yahoo Finance v8 API works from servers with just browser UA + Referer.
+# No cookies or crumb needed — confirmed by 429 rate-limit response from server IPs.
 
 QUOTE_CACHE_SECONDS = max(15, int(os.getenv("MARKET_QUOTE_CACHE_SECONDS", "300")))
 HISTORY_CACHE_SECONDS = max(300, int(os.getenv("MARKET_HISTORY_CACHE_SECONDS", "21600")))
@@ -261,105 +253,23 @@ def _request(
         raise RuntimeError("Market service timed out.") from exc
 
 
-def _yf_get_opener() -> urllib.request.OpenerDirector:
-    """Return (creating if needed) the module-level Yahoo Finance opener."""
-    global _yf_opener
-    with _yf_opener_lock:
-        if _yf_opener is None:
-            _yf_opener = urllib.request.build_opener(
-                urllib.request.HTTPCookieProcessor(_yf_jar)
-            )
-    return _yf_opener
-
-
-def _yf_refresh_crumb() -> str:
-    """Visit finance.yahoo.com to establish session cookies, then fetch a crumb."""
-    opener = _yf_get_opener()
-    # Establish session cookies via Yahoo Finance's landing page.
-    for init_url in ["https://finance.yahoo.com/", "https://yahoo.com/"]:
-        try:
-            req = urllib.request.Request(
-                init_url,
-                headers={
-                    "User-Agent": _BROWSER_UA,
-                    "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
-                    "Accept-Language": "en-US,en;q=0.5",
-                },
-            )
-            with opener.open(req, timeout=10):
-                pass
-            break
-        except Exception:
-            continue
-    # Retrieve the crumb using the now-established cookies.
-    for host in ("query2", "query1"):
-        try:
-            req = urllib.request.Request(
-                f"https://{host}.finance.yahoo.com/v1/test/getcrumb",
-                headers={
-                    "User-Agent": _BROWSER_UA,
-                    "Accept": "*/*",
-                    "Referer": "https://finance.yahoo.com/",
-                },
-            )
-            with opener.open(req, timeout=8) as r:
-                crumb = r.read().decode("utf-8").strip()
-                if crumb and 3 < len(crumb) < 60 and not crumb.startswith("<"):
-                    return crumb
-        except Exception:
-            continue
-    return ""
-
-
-def _yf_get_crumb() -> str:
-    """Return a cached Yahoo Finance crumb, refreshing if older than 50 minutes."""
-    global _yf_crumb, _yf_crumb_at
-    with _yf_crumb_lock:
-        if _yf_crumb and time.monotonic() - _yf_crumb_at < 3000:
-            return _yf_crumb
-    crumb = _yf_refresh_crumb()
-    if crumb:
-        with _yf_crumb_lock:
-            _yf_crumb = crumb
-            _yf_crumb_at = time.monotonic()
-    return crumb
-
-
 def _fetch_json_yf(url: str) -> dict:
-    """Fetch JSON from Yahoo Finance using the managed cookie jar + crumb."""
-    crumb = _yf_get_crumb()
-    if crumb:
-        sep = "&" if "?" in url else "?"
-        url = f"{url}{sep}crumb={quote(crumb, safe='')}"
-    opener = _yf_get_opener()
-    _throttle()
-    req = urllib.request.Request(
+    """Fetch JSON from Yahoo Finance.
+
+    Yahoo Finance's v8 chart API responds to server-side requests without
+    cookies or a crumb token (confirmed: returns 429 on rate-limit, not GDPR
+    redirect).  A browser User-Agent and Referer are sufficient.
+    """
+    return _fetch_json(
         url,
-        headers={
-            "User-Agent": _BROWSER_UA,
-            "Accept": "application/json,text/plain,*/*",
-            "Referer": "https://finance.yahoo.com/",
-        },
+        timeout=12,
+        extra_headers={"Referer": "https://finance.yahoo.com/"},
     )
-    try:
-        with opener.open(req, timeout=12) as r:
-            return json.loads(r.read().decode("utf-8"))
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("Yahoo Finance returned invalid JSON.") from exc
-    except urllib.error.HTTPError as exc:
-        if exc.code == 429:
-            raise MarketRateLimited(_retry_after(exc.headers)) from exc
-        body = exc.read().decode("utf-8", "replace")[:300]
-        raise RuntimeError(f"Yahoo Finance returned HTTP {exc.code}: {body or exc.reason}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"Could not reach Yahoo Finance: {exc.reason}") from exc
-    except (TimeoutError, OSError) as exc:
-        raise RuntimeError("Yahoo Finance request timed out.") from exc
 
 
-def _fetch_json(url: str, *, timeout: float = 10.0, fresh: bool = False) -> dict:
+def _fetch_json(url: str, *, timeout: float = 10.0, fresh: bool = False, extra_headers: dict | None = None) -> dict:
     try:
-        return json.loads(_request(url, accept="application/json,text/plain,*/*", timeout=timeout, fresh=fresh).decode("utf-8"))
+        return json.loads(_request(url, accept="application/json,text/plain,*/*", timeout=timeout, fresh=fresh, extra_headers=extra_headers).decode("utf-8"))
     except json.JSONDecodeError as exc:
         raise RuntimeError("Market service returned invalid JSON.") from exc
 
