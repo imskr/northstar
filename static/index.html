@@ -825,7 +825,7 @@ function currentAllocationPercentage(id){
  return total>0&&state.assets[id]?replay(id).value/total*100:null;
 }
 function setAssetTarget(id,value){if(!state.assets[id])return;const parsed=Number(value);if(!Number.isFinite(parsed))return;state.assets[id].target=Math.max(0,Math.min(1,parsed))}
-function normalizeDynamicState(){const originalVersion=Number(state.version||0);state.version=15;state.profile=merge(DEFAULT.profile,state.profile||{});state.market=merge(DEFAULT.market,state.market||{});state.assets=state.assets&&typeof state.assets==='object'?state.assets:{};state.transactions=Array.isArray(state.transactions)?state.transactions:[];state.benchmarks=merge(DEFAULT.benchmarks,state.benchmarks||{});state.ui=merge(DEFAULT.ui,state.ui||{});const ids=Object.keys(state.assets);const untouchedLegacy=ids.length===3&&['bcfp','sec0','emsm'].every(id=>ids.includes(id))&&!state.transactions.length&&ids.every(id=>!Number(state.assets[id]?.baselineShares)&&!Number(state.assets[id]?.baselineRealizedPnl));if(untouchedLegacy)state.assets={};for(const [id,a] of Object.entries(state.assets)){const legacy=LEGACY_META[id]||{};a.symbol=String(a.symbol||`${legacy.ticker||id}.DE`).trim().toUpperCase();a.ticker=a.ticker||legacy.ticker||a.symbol.split('.')[0];a.name=a.name||legacy.name||a.symbol;a.issuer=a.issuer||legacy.issuer||exchangeName(a.symbol);a.exchange=a.exchange||exchangeName(a.symbol);a.currency=a.currency||'EUR';a.target=Math.max(0,Number(a.target)||0);a.monthly=Math.max(0,Number(a.monthly)||0);a.baselineShares=Math.max(0,Number(a.baselineShares)||0);a.baselineAvgPrice=Math.max(0,Number(a.baselineAvgPrice)||0);a.baselineRealizedPnl=Number(a.baselineRealizedPnl)||0;a.currentPrice=Number(a.currentPrice)||null;a.quote=a.quote||null;a.history=Array.isArray(a.history)?a.history:[]}state.market.provider='proxy';state.market.proxyUrl=state.market.proxyUrl||'/api/market';state.market.priceBasis='last';state.market.exchange='EUR';state.profile.monthlyInvestment=Math.max(0,Number(state.profile.monthlyInvestment)||Object.values(state.assets).reduce((n,a)=>n+(Number(a.monthly)||0),0)||600);if(Object.keys(state.assets).length){const total=Object.values(state.assets).reduce((n,a)=>n+(Number(a.target)||0),0);if(!Number.isFinite(total)||total<=0)normalizeTargets()}rebuildMeta()}
+function normalizeDynamicState(){const originalVersion=Number(state.version||0);state.version=15;state.profile=merge(DEFAULT.profile,state.profile||{});state.market=merge(DEFAULT.market,state.market||{});state.assets=state.assets&&typeof state.assets==='object'?state.assets:{};state.transactions=Array.isArray(state.transactions)?state.transactions:[];state.benchmarks=merge(DEFAULT.benchmarks,state.benchmarks||{});state.ui=merge(DEFAULT.ui,state.ui||{});const ids=Object.keys(state.assets);const untouchedLegacy=ids.length===3&&['bcfp','sec0','emsm'].every(id=>ids.includes(id))&&!state.transactions.length&&ids.every(id=>!Number(state.assets[id]?.baselineShares)&&!Number(state.assets[id]?.baselineRealizedPnl));for(const [id,a] of Object.entries(state.assets)){const legacy=LEGACY_META[id]||{};a.symbol=String(a.symbol||`${legacy.ticker||id}.DE`).trim().toUpperCase();a.ticker=a.ticker||legacy.ticker||a.symbol.split('.')[0];a.name=a.name||legacy.name||a.symbol;a.issuer=a.issuer||legacy.issuer||exchangeName(a.symbol);a.exchange=a.exchange||exchangeName(a.symbol);a.currency=a.currency||'EUR';a.target=Math.max(0,Number(a.target)||0);a.monthly=Math.max(0,Number(a.monthly)||0);a.baselineShares=Math.max(0,Number(a.baselineShares)||0);a.baselineAvgPrice=Math.max(0,Number(a.baselineAvgPrice)||0);a.baselineRealizedPnl=Number(a.baselineRealizedPnl)||0;a.currentPrice=Number(a.currentPrice)||null;a.quote=a.quote||null;a.history=Array.isArray(a.history)?a.history:[]}state.market.provider='proxy';state.market.proxyUrl=state.market.proxyUrl||'/api/market';state.market.priceBasis='last';state.market.exchange='EUR';state.profile.monthlyInvestment=Math.max(0,Number(state.profile.monthlyInvestment)||Object.values(state.assets).reduce((n,a)=>n+(Number(a.monthly)||0),0)||600);if(Object.keys(state.assets).length){const total=Object.values(state.assets).reduce((n,a)=>n+(Number(a.target)||0),0);if(!Number.isFinite(total)||total<=0)normalizeTargets()}rebuildMeta()}
 const previousVersion=Number(state.version||0);normalizeDynamicState();if(previousVersion<15)storage.setItem(STORAGE,JSON.stringify(state));
 function cloudStatus(message,kind=''){const el=$('#cloudSyncStatus');if(!el)return;el.textContent=message;el.className=`sync-chip ${kind}`.trim()}
 async function apiRequest(path,options={}){const res=await fetch(path,{credentials:'same-origin',headers:{'Content-Type':'application/json',Accept:'application/json',...(options.headers||{})},...options});let data={};try{data=await res.json()}catch{}if(!res.ok){const err=new Error(data.error||`Request failed (${res.status})`);err.status=res.status;throw err}return data}
@@ -1021,55 +1021,14 @@ async function fetchProxyBatch(full=false,endpointOverride,force=false){
  return{failures,provider:result.provider||'Northstar market service',updatedAt:result.updatedAt,freshRequested:!!result.freshRequested,realtime:!!result.realtime,realTimeConfigured:!!result.realTimeConfigured,warnings:result.warnings||[],diagnostic:result.diagnostic||'',liveIssues:result.liveIssues||{},errors:result.errors||{}};
 }
 function providerMode(){return (state.market.twelveKey||'').trim().length>0?'twelve':'proxy'}
-function applyYahooChart(id,result,full){
- const meta=result.meta||{},price=meta.regularMarketPrice;
- if(!price||price<=0)throw new Error('No usable price from Yahoo');
- const prev=meta.chartPreviousClose||null;
- state.assets[id].currentPrice=price;
- state.assets[id].nativeCurrency=meta.currency||'EUR';
- state.assets[id].quote={lastTrade:price,previousClose:prev,change:prev?price-prev:null,
-  percentChange:prev?(price/prev-1)*100:null,
-  datetime:new Date((meta.regularMarketTime||Date.now()/1000)*1000).toISOString(),
-  marketOpen:meta.marketState==='REGULAR',marketState:meta.marketState||null,
-  source:'Yahoo Finance',currency:'EUR',nativeCurrency:meta.currency||'EUR',
-  nativePrice:price,fxToEur:1,
-  exchange:meta.exchangeName||exchangeName(state.assets[id].symbol),
-  priceBasis:'last',bid:null,ask:null,mid:null,spreadPct:null};
- if(full){
-  const ts=result.timestamp||[],closes=(result.indicators?.quote||[])[0]?.close||[],rows=[];
-  for(let i=0;i<ts.length;i++){const c=closes[i];if(c&&c>0)rows.push({date:new Date(ts[i]*1000).toISOString().slice(0,10),close:c})}
-  if(rows.length>1)state.assets[id].history=rows.slice(-(state.market.historySize||260));
- }}
-async function fetchYahooBrowserBatch(full=false){
- const ids=Object.keys(state.assets),failures=[];
- for(const id of ids){
-  try{
-   const sym=encodeURIComponent(state.assets[id].symbol),range=full?historyRange():'5d';
-   const url=`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?range=${range}&interval=1d&events=history&includePrePost=false`;
-   const res=await fetch(url,{headers:{Accept:'application/json'},credentials:'include'});
-   if(!res.ok)throw new Error(`Yahoo HTTP ${res.status}`);
-   const d=await res.json();
-   if(d?.chart?.error)throw new Error(d.chart.error.description||'Yahoo error');
-   const r=(d?.chart?.result||[])[0];
-   if(!r)throw new Error('Yahoo: no chart data');
-   applyYahooChart(id,r,full);
-  }catch(e){failures.push(e)}
- }
- if(failures.length===ids.length&&ids.length>0)throw failures[0]||new MarketDataError('Yahoo Finance returned no data.','provider');
- rebuildMeta();
- return{failures:failures.map(f=>f instanceof Error?f:new Error(String(f))),
-  provider:'Yahoo Finance',realtime:false,realTimeConfigured:true,
-  warnings:['15-min delayed via Yahoo Finance'],
-  diagnostic:'Yahoo Finance browser fetch done.',
-  updatedAt:new Date().toISOString(),liveIssues:{},errors:{}}}
 async function fetchAssetBatch(full=false,override,force=false){
  if(providerMode()==='proxy')return fetchProxyBatch(full,override,force);
  try{return await fetchTwelveBatch(full)}
  catch(e){
-  // key error or network → don't swallow, re-throw
-  if(e?.code==='key'||e?.code==='network')throw e;
-  // plan restriction (403) or symbol not found → try Yahoo directly from browser
-  return fetchYahooBrowserBatch(full);}}
+  if(e?.code==='key')throw e;
+  if(e?.code==='network')throw e;
+  // plan restriction → server proxy has Stooq fallback for these ETFs
+  return fetchProxyBatch(full,override,force);}}
 async function fetchQuote(id){await fetchAssetBatch(false);return state.assets[id].quote}
 async function fetchHistoryAsset(){return fetchAssetBatch(true)}
 async function fetchHistoryBenchmark(){return fetchProxyBatch(true)}
@@ -1304,7 +1263,7 @@ $('#normalizeTargetsBtn').addEventListener('click',()=>{
 $('#selectedEtfList').addEventListener('click',event=>{const id=event.target.dataset.removeEtf;if(id)removeEtf(id)});
 $('#normalizeTargetsBtn').addEventListener('click',()=>{if(!Object.keys(state.assets).length){toast('Add an ETF first.','warn');return}normalizeTargets();save();renderAll();toast('Targets balanced to 100%.')});
 
-function startApp(){if(appStarted)return;appStarted=true;const _legacy=new Set(['bcfp','sec0','emsm']);const _ids=Object.keys(state.assets);if(_ids.length&&_ids.every(id=>_legacy.has(id))&&!state.transactions.length&&_ids.every(id=>!Number(state.assets[id]?.baselineShares)&&!Number(state.assets[id]?.baselineRealizedPnl))){state.assets={};save();toast('Example ETFs removed. Search for your real ETFs in Positions → ETF Library.');}$('#txDate').value=TODAY;$('#monthlyRange').value=monthlyTotal()||600;$('#returnRange').value=state.profile.expectedReturn;$('#deadlineRange').value=state.profile.goalYears;$('#horizonRange').value=state.profile.horizon;$('#extraDecisionRange').value=Number(state.ui.extraMonthly??100);$$('#chartMode button').forEach(b=>b.classList.toggle('active',b.dataset.mode===state.ui.chartMode));state.market.autoRefresh=false;renderAll();setupTimer();if(Object.keys(state.assets).length)syncMarket(false,false,false)}
+function startApp(){if(appStarted)return;appStarted=true;$('#txDate').value=TODAY;$('#monthlyRange').value=monthlyTotal()||600;$('#returnRange').value=state.profile.expectedReturn;$('#deadlineRange').value=state.profile.goalYears;$('#horizonRange').value=state.profile.horizon;$('#extraDecisionRange').value=Number(state.ui.extraMonthly??100);$$('#chartMode button').forEach(b=>b.classList.toggle('active',b.dataset.mode===state.ui.chartMode));state.market.autoRefresh=false;renderAll();setupTimer();if(Object.keys(state.assets).length)syncMarket(false,false,false)}
 bootstrapAuth().finally(()=>requestAnimationFrame(finishAuthBootstrap))
 })();
 </script>
