@@ -7,8 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from northstar.db import get_engine  # noqa: E402
-from northstar.models import Base  # noqa: E402
+from northstar.db import initialize_database  # noqa: E402
 
-Base.metadata.create_all(get_engine())
+initialize_database()
 print("Northstar database schema is ready.")

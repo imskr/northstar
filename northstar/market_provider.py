@@ -247,7 +247,14 @@ def _request(
         if exc.code == 429:
             raise MarketRateLimited(_retry_after(exc.headers)) from exc
         body = exc.read().decode("utf-8", "replace")[:300]
-        raise RuntimeError(f"Market service returned HTTP {exc.code}: {body or exc.reason}") from exc
+        detail = body
+        try:
+            parsed_body = json.loads(body)
+        except (ValueError, TypeError):
+            parsed_body = None
+        if isinstance(parsed_body, dict) and parsed_body.get("message"):
+            detail = str(parsed_body["message"])
+        raise RuntimeError(f"Market service returned HTTP {exc.code}: {detail or exc.reason}") from exc
     except URLError as exc:
         raise RuntimeError(f"Could not reach the market service: {exc.reason}") from exc
     except TimeoutError as exc:
@@ -442,7 +449,27 @@ def _twelve_batch(endpoint: str, symbols: list[str], *, fresh: bool = False, **p
         **{key: str(value) for key, value in params.items() if value is not None},
         "apikey": _twelve_key(),
     }
-    raw = _fetch_json(f"https://api.twelvedata.com/{endpoint}?{urlencode(query)}", fresh=fresh)
+    try:
+        raw = _fetch_json(f"https://api.twelvedata.com/{endpoint}?{urlencode(query)}", fresh=fresh)
+    except (MarketRateLimited, RuntimeError):
+        # Twelve Data's multi-symbol quote/time_series endpoints reject the ENTIRE
+        # request with a single HTTP error when even one symbol isn't entitled on
+        # the caller's plan (common for European ETFs/Xetra on the free tier).
+        # Re-issue one symbol at a time so symbols Twelve Data *can* serve still
+        # get a real-time price instead of being dragged down with the bad one.
+        if len(symbols) == 1:
+            raise
+        results: dict[str, dict] = {}
+        errors: dict[str, str] = {}
+        for symbol in symbols:
+            try:
+                sub_results, sub_errors = _twelve_batch(endpoint, [symbol], fresh=fresh, **params)
+            except (MarketRateLimited, RuntimeError) as sub_exc:
+                errors[symbol] = str(sub_exc)
+                continue
+            results.update(sub_results)
+            errors.update(sub_errors)
+        return results, errors
     # A single-symbol response is the payload itself; batch responses are keyed by SYMBOL:MIC.
     if len(symbols) == 1 and (_twelve_error_message(raw) is not None or endpoint == "quote" and ("close" in raw or "price" in raw) or endpoint == "time_series" and ("values" in raw or "meta" in raw)):
         raw = {next(iter(identifiers)): raw}

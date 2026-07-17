@@ -120,6 +120,12 @@ def save_state():
     if len(trades) > 20_000:
         return jsonify({"error": "Transaction limit exceeded."}), 400
 
+    assets = incoming.get("assets")
+    known_assets = set(assets) if isinstance(assets, dict) else set()
+    orphaned = sorted({trade["asset"] for trade in trades if trade["asset"] not in known_assets})
+    if orphaned:
+        return jsonify({"error": f"Transaction references unknown asset(s): {', '.join(orphaned)}.", "assets": orphaned}), 400
+
     state_without_trades = copy.deepcopy(incoming)
     state_without_trades.pop("transactions", None)
     market = state_without_trades.get("market")

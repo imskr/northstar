@@ -44,7 +44,7 @@ class Trade(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     trade_id: Mapped[str] = mapped_column(String(80), nullable=False)
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
-    asset: Mapped[str] = mapped_column(String(16), nullable=False)
+    asset: Mapped[str] = mapped_column(String(40), nullable=False)
     type: Mapped[str] = mapped_column(String(8), nullable=False)
     trade_date: Mapped[str] = mapped_column(String(10), nullable=False)
     shares: Mapped[float] = mapped_column(Float, nullable=False)

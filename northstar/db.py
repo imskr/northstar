@@ -4,11 +4,11 @@ import base64
 import json
 import os
 import sqlite3
-import socket
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse, urlunparse
 from urllib.request import Request, urlopen
@@ -242,7 +242,7 @@ class TursoHttpDatabase(Database):
         except HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")[:500]
             raise DatabaseError(f"Turso HTTP {exc.code}: {detail or exc.reason}") from exc
-        except (URLError, socket.timeout, TimeoutError) as exc:
+        except (URLError, TimeoutError) as exc:
             raise DatabaseError(f"Turso request failed: {exc}") from exc
         except (OSError, json.JSONDecodeError) as exc:
             raise DatabaseError(f"Turso returned an invalid response: {exc}") from exc
