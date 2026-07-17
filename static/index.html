@@ -1020,7 +1020,56 @@ async function fetchProxyBatch(full=false,endpointOverride,force=false){
  if(full)benchmarkKeys.forEach((key,index)=>applyUnifiedBenchmark(key,data[benchmarkSymbols[index]]));
  return{failures,provider:result.provider||'Northstar market service',updatedAt:result.updatedAt,freshRequested:!!result.freshRequested,realtime:!!result.realtime,realTimeConfigured:!!result.realTimeConfigured,warnings:result.warnings||[],diagnostic:result.diagnostic||'',liveIssues:result.liveIssues||{},errors:result.errors||{}};
 }
-async function fetchAssetBatch(full=false,override,force=false){return fetchProxyBatch(full,override,force)}
+function providerMode(){return (state.market.twelveKey||'').trim().length>0?'twelve':'proxy'}
+function applyYahooChart(id,result,full){
+ const meta=result.meta||{},price=meta.regularMarketPrice;
+ if(!price||price<=0)throw new Error('No usable price from Yahoo');
+ const prev=meta.chartPreviousClose||null;
+ state.assets[id].currentPrice=price;
+ state.assets[id].nativeCurrency=meta.currency||'EUR';
+ state.assets[id].quote={lastTrade:price,previousClose:prev,change:prev?price-prev:null,
+  percentChange:prev?(price/prev-1)*100:null,
+  datetime:new Date((meta.regularMarketTime||Date.now()/1000)*1000).toISOString(),
+  marketOpen:meta.marketState==='REGULAR',marketState:meta.marketState||null,
+  source:'Yahoo Finance',currency:'EUR',nativeCurrency:meta.currency||'EUR',
+  nativePrice:price,fxToEur:1,
+  exchange:meta.exchangeName||exchangeName(state.assets[id].symbol),
+  priceBasis:'last',bid:null,ask:null,mid:null,spreadPct:null};
+ if(full){
+  const ts=result.timestamp||[],closes=(result.indicators?.quote||[])[0]?.close||[],rows=[];
+  for(let i=0;i<ts.length;i++){const c=closes[i];if(c&&c>0)rows.push({date:new Date(ts[i]*1000).toISOString().slice(0,10),close:c})}
+  if(rows.length>1)state.assets[id].history=rows.slice(-(state.market.historySize||260));
+ }}
+async function fetchYahooBrowserBatch(full=false){
+ const ids=Object.keys(state.assets),failures=[];
+ for(const id of ids){
+  try{
+   const sym=encodeURIComponent(state.assets[id].symbol),range=full?historyRange():'5d';
+   const url=`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?range=${range}&interval=1d&events=history&includePrePost=false`;
+   const res=await fetch(url,{headers:{Accept:'application/json'},credentials:'include'});
+   if(!res.ok)throw new Error(`Yahoo HTTP ${res.status}`);
+   const d=await res.json();
+   if(d?.chart?.error)throw new Error(d.chart.error.description||'Yahoo error');
+   const r=(d?.chart?.result||[])[0];
+   if(!r)throw new Error('Yahoo: no chart data');
+   applyYahooChart(id,r,full);
+  }catch(e){failures.push(e)}
+ }
+ if(failures.length===ids.length&&ids.length>0)throw failures[0]||new MarketDataError('Yahoo Finance returned no data.','provider');
+ rebuildMeta();
+ return{failures:failures.map(f=>f instanceof Error?f:new Error(String(f))),
+  provider:'Yahoo Finance',realtime:false,realTimeConfigured:true,
+  warnings:['15-min delayed via Yahoo Finance'],
+  diagnostic:'Yahoo Finance browser fetch done.',
+  updatedAt:new Date().toISOString(),liveIssues:{},errors:{}}}
+async function fetchAssetBatch(full=false,override,force=false){
+ if(providerMode()==='proxy')return fetchProxyBatch(full,override,force);
+ try{return await fetchTwelveBatch(full)}
+ catch(e){
+  // key error or network → don't swallow, re-throw
+  if(e?.code==='key'||e?.code==='network')throw e;
+  // plan restriction (403) or symbol not found → try Yahoo directly from browser
+  return fetchYahooBrowserBatch(full);}}
 async function fetchQuote(id){await fetchAssetBatch(false);return state.assets[id].quote}
 async function fetchHistoryAsset(){return fetchAssetBatch(true)}
 async function fetchHistoryBenchmark(){return fetchProxyBatch(true)}
@@ -1101,8 +1150,8 @@ function renderGoalSensitivity(){const el=$('#goalSensitivityGrid');if(!el)retur
 function renderReview(){const items=reviewItems(),score=healthScore();$('#scoreValue').textContent=score;$('#scoreRing').style.background=`conic-gradient(${score>=80?'var(--green)':score>=60?'var(--amber)':'var(--red)'} ${score*3.6}deg,rgba(255,255,255,.07) 0)`;$('#reviewHeadline').textContent=score>=85?'Portfolio system is healthy':score>=65?'Solid foundation—keep refining':'Complete the operating system';$('#reviewCopy').textContent=score>=85?'Your data, allocation, contribution habit, and goal plan are working together.':score>=65?'The strategy is coherent, but one or two setup or consistency gaps remain.':'Connect live data, enter exact holdings, and build a consistent monthly record.';$('#reviewList').innerHTML=items.map(x=>`<div class="review-item"><h4 class="${x.status==='good'?'positive':x.status==='warn'?'amber':'negative'}">${x.title}</h4><p>${x.body}</p></div>`).join('');$('#reviewLedger').innerHTML=state.reviews.length?[...state.reviews].reverse().slice(0,8).map(r=>`<div class="review-item"><h4>${dateFmt(r.date)}</h4><p>Health ${r.score}/100 · value ${fmt(r.value,0)} · drift ${r.drift}/100</p></div>`).join(''):'<div class="empty">No saved reviews yet. Run one now, then repeat quarterly.</div>';renderDcaBacktest();renderGoalSensitivity()}
 function renderAll(){normalizeDynamicState();renderAssetManager();renderOverview();renderPositions();renderLab();renderReview()}
 function switchPage(id){$$('.page').forEach(x=>x.classList.toggle('active',x.id===id));$$('[data-page]').forEach(x=>x.classList.toggle('active',x.dataset.page===id));window.scrollTo({top:0,behavior:'smooth'});if(id==='lab')setTimeout(renderLab,30);if(id==='overview')setTimeout(drawMainChart,30)}
-function updateProviderHelp(){const el=$('#providerHelp');if(!el)return;const hasKey=(state.market.twelveKey||'').trim().length>0;if(hasKey)el.innerHTML='<strong style="color:var(--green)">✓ Real-time via Twelve Data</strong> · XETR, LSE, Euronext. 800 requests/day on the free plan.';else el.innerHTML='Enter a free <a href="https://twelvedata.com/apikey" target="_blank" rel="noopener" style="color:var(--accent)">Twelve Data API key</a> above for real-time prices from all European exchanges. Free plan: 800 req/day, no credit card. Without a key, Yahoo Finance delayed quotes are used (may fail from cloud servers).';}
-function openSettings(){const profile=state.profile,market=state.market;state.market.autoRefresh=false;$('#setProxyUrl').value=market.proxyUrl||'/api/market';$('#setAuto').value='false';$('#setAuto').disabled=true;$('#setRefresh').value='900';$('#setRefresh').disabled=true;$('#setHistory').value=String(market.historySize||260);$('#setName').value=profile.name||authUser?.name||'';$('#setGoal').value=profile.goal;$('#setExpected').value=profile.expectedReturn;$('#setRf').value=profile.riskFreeRate;$('#setStart').value=profile.startDate;$('#connectionResult').textContent='';if($('#setTwelveKey'))$('#setTwelveKey').value=market.twelveKey||'';if($('#diagnosticText'))$('#diagnosticText').textContent=market.lastDiagnostic||'No diagnostics recorded.';updateProviderHelp();$('#settingsModal').classList.add('show')}
+function updateProviderHelp(){const el=$('#providerHelp');if(!el)return;const hasKey=(state.market.twelveKey||'').trim().length>0;if(hasKey){el.innerHTML='✓ <strong>Real-time via Twelve Data</strong> · Free plan: 800 requests/day. If a specific ETF shows a plan error, Yahoo Finance is used as fallback.';}else{el.innerHTML='Enter a free <a href="https://twelvedata.com/apikey" target="_blank" rel="noopener" style="color:var(--accent)">Twelve Data API key</a> above for real-time prices from all European exchanges. Without a key, prices are fetched server-side via Stooq/Yahoo (may be unreliable from EU cloud servers).';}}
+function openSettings(){const profile=state.profile,market=state.market;state.market.autoRefresh=false;$('#setProxyUrl').value=market.proxyUrl||'/api/market';$('#setAuto').value='false';$('#setAuto').disabled=true;$('#setRefresh').value='900';$('#setRefresh').disabled=true;$('#setHistory').value=String(market.historySize||260);$('#setName').value=profile.name||authUser?.name||'';$('#setGoal').value=profile.goal;$('#setExpected').value=profile.expectedReturn;$('#setRf').value=profile.riskFreeRate;$('#setStart').value=profile.startDate;$('#connectionResult').textContent='';if($('#setTwelveKey'))$('#setTwelveKey').value=market.twelveKey||'';if($('#setTwelveKey'))$('#setTwelveKey').value=market.twelveKey||'';if($('#diagnosticText'))$('#diagnosticText').textContent=market.lastDiagnostic||'No diagnostics recorded.';updateProviderHelp();$('#settingsModal').classList.add('show')}
 function closeSettings(){$('#settingsModal').classList.remove('show')}
 function download(text,name,type='application/json'){const b=new Blob([text],{type}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),500)}
 
