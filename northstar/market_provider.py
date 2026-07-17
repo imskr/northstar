@@ -522,10 +522,13 @@ def _twelve_quote_payload(symbol: str, data: dict) -> dict:
     market_open = data.get("is_market_open")
     if isinstance(market_open, str):
         market_open = market_open.strip().lower() in {"1", "true", "yes", "open"}
+    # Twelve Data marks XETR as EOD-delayed. Do not present an accepted
+    # Xetra response as live merely because it came from the quote endpoint.
+    is_xetra_eod = _symbol_parts(symbol)[1] == ".DE"
     return {
         "provider": "Twelve Data",
-        "realtime": True,
-        "delayed": False,
+        "realtime": not is_xetra_eod,
+        "delayed": is_xetra_eod,
         "name": data.get("name") or symbol.split(".")[0],
         "currency": str(data.get("currency") or SUFFIX_CURRENCIES.get(_symbol_parts(symbol)[1], "EUR")),
         "price": price,
@@ -818,69 +821,84 @@ def _yahoo_history(symbol: str, range_: str) -> dict:
 
 def _load_quote(symbol: str, *, prefer_realtime: bool = True) -> dict:
     errors: list[str] = []
+
     if prefer_realtime and real_time_configured():
         try:
             return _twelve_quote(symbol)
         except (MarketRateLimited, MarketEntitlementError, RuntimeError) as exc:
             errors.append(f"Twelve Data: {exc}")
-    # EODHD — only when a non-demo token is explicitly configured.
-    # The EODHD demo key only covers AAPL.US and is useless for European ETFs.
-    _eodhd_token = os.getenv("EODHD_API_TOKEN", "").strip()
-    if _eodhd_token and _eodhd_token != "demo":
+
+    # Keep an explicitly configured EODHD account as an optional fallback.
+    eodhd_token = os.getenv("EODHD_API_TOKEN", "").strip()
+    if eodhd_token and eodhd_token.lower() != "demo":
         try:
             payload = _eodhd_quote(symbol)
             payload["provider_errors"] = errors.copy()
             return payload
         except (MarketRateLimited, RuntimeError) as exc:
             errors.append(f"EODHD: {exc}")
-    # Yahoo Finance with cookie-jar session + crumb (primary free fallback).
-    try:
-        payload = _yahoo_history(symbol, "5d")
-        payload["history"] = payload["history"][-2:]
-        payload["provider_errors"] = errors.copy()
-        return payload
-    except (MarketRateLimited, RuntimeError) as exc:
-        errors.append(f"Yahoo: {exc}")
-    # Stooq — delayed, may be IP-blocked from some cloud regions.
-    try:
-        payload = _stooq_quote(symbol)
-        payload["provider_errors"] = errors.copy()
-        return payload
-    except (MarketRateLimited, RuntimeError) as exc:
-        errors.append(f"Stooq: {exc}")
-    raise RuntimeError(" | ".join(errors) or f"No quote provider returned {symbol}.")
 
+    # Stooq has direct coverage for the Xetra listings used by Northstar and is
+    # less fragile on Render than Yahoo's cookie/crumb flow. It remains a delayed,
+    # best-effort source, so Yahoo is retained as an independent fallback.
+    suffix = exchange_for_symbol(symbol)[0]
+    if suffix == ".DE":
+        loaders = (
+            ("Stooq", lambda: _stooq_quote(symbol)),
+            ("Stooq history", lambda: _stooq_history(symbol, "5d")),
+            ("Yahoo", lambda: _yahoo_history(symbol, "5d")),
+        )
+    else:
+        loaders = (
+            ("Yahoo", lambda: _yahoo_history(symbol, "5d")),
+            ("Stooq", lambda: _stooq_quote(symbol)),
+            ("Stooq history", lambda: _stooq_history(symbol, "5d")),
+        )
+
+    for provider_name, loader in loaders:
+        try:
+            payload = loader()
+            if provider_name == "Yahoo":
+                payload["history"] = payload.get("history", [])[-2:]
+            payload["provider_errors"] = errors.copy()
+            return payload
+        except (MarketRateLimited, RuntimeError) as exc:
+            errors.append(f"{provider_name}: {exc}")
+
+    raise RuntimeError(" | ".join(errors) or f"No quote provider returned {symbol}.")
 
 def _load_history(symbol: str, range_: str, *, prefer_realtime: bool = True) -> dict:
     errors: list[str] = []
+
     if prefer_realtime and real_time_configured():
         try:
             return _twelve_history(symbol, range_)
         except (MarketRateLimited, MarketEntitlementError, RuntimeError) as exc:
             errors.append(f"Twelve Data: {exc}")
-    # EODHD with real token.
-    _eodhd_token = os.getenv("EODHD_API_TOKEN", "").strip()
-    if _eodhd_token and _eodhd_token != "demo":
+
+    eodhd_token = os.getenv("EODHD_API_TOKEN", "").strip()
+    if eodhd_token and eodhd_token.lower() != "demo":
         try:
             payload = _eodhd_history(symbol, range_)
             payload["provider_errors"] = errors.copy()
             return payload
         except (MarketRateLimited, RuntimeError) as exc:
             errors.append(f"EODHD: {exc}")
-    # Yahoo Finance history (cookie-jar session, primary free source).
-    try:
-        payload = _yahoo_history(symbol, range_)
-        payload["provider_errors"] = errors.copy()
-        return payload
-    except (MarketRateLimited, RuntimeError) as exc:
-        errors.append(f"Yahoo: {exc}")
-    # Stooq history.
-    try:
-        payload = _stooq_history(symbol, range_)
-        payload["provider_errors"] = errors.copy()
-        return payload
-    except (MarketRateLimited, RuntimeError) as exc:
-        errors.append(f"Stooq: {exc}")
+
+    suffix = exchange_for_symbol(symbol)[0]
+    loaders = (
+        (("Stooq", lambda: _stooq_history(symbol, range_)), ("Yahoo", lambda: _yahoo_history(symbol, range_)))
+        if suffix == ".DE"
+        else (("Yahoo", lambda: _yahoo_history(symbol, range_)), ("Stooq", lambda: _stooq_history(symbol, range_)))
+    )
+    for provider_name, loader in loaders:
+        try:
+            payload = loader()
+            payload["provider_errors"] = errors.copy()
+            return payload
+        except (MarketRateLimited, RuntimeError) as exc:
+            errors.append(f"{provider_name}: {exc}")
+
     raise RuntimeError(" | ".join(errors) or f"No history provider returned {symbol}.")
 
 def _currency_parts(raw_currency: str | None) -> tuple[str, float]:

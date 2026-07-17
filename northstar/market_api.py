@@ -132,7 +132,7 @@ def _market_handler():
     realtime = bool(data) and all(bool(item.get("realtime")) for item in data.values())
     warnings: list[str] = []
     if not configured and not include_history:
-        warnings.append("Render cannot see TWELVE_DATA_API_KEY; delayed providers were used.")
+        warnings.append("No entitled real-time feed is configured; Stooq/Yahoo supplied the latest available delayed data where possible.")
     elif live_issues and not include_history:
         details = "; ".join(f"{symbol}: {message}" for symbol, message in live_issues.items())
         warnings.append(f"Twelve Data live feed was unavailable ({details}). A delayed fallback was used where possible.")
@@ -172,9 +172,42 @@ def market_status():
         return jsonify({"error": "Add a symbol to test."}), 400
     if not is_supported_symbol(symbol):
         return jsonify({"error": "Unsupported European exchange symbol."}), 400
-    result = twelve_diagnostics(symbol)
-    return jsonify(result), 200 if result.get("ok") else 503
 
+    twelve = twelve_diagnostics(symbol)
+    fallback: dict = {"ok": False}
+    try:
+        quote = normalize(
+            symbol,
+            "5d",
+            force=True,
+            include_history=False,
+            prefer_realtime=False,
+        )
+        fallback = {
+            "ok": True,
+            "provider": quote.get("provider"),
+            "price": quote.get("price"),
+            "marketTime": quote.get("marketTime"),
+            "realtime": bool(quote.get("realtime")),
+            "delayed": bool(quote.get("delayed")),
+            "source": quote.get("source"),
+            "providerErrors": quote.get("providerErrors") or [],
+        }
+    except Exception as exc:
+        fallback = {"ok": False, "error": str(exc)}
+
+    ok = bool(twelve.get("ok") or fallback.get("ok"))
+    return jsonify({
+        "ok": ok,
+        "symbol": symbol,
+        "message": (
+            "At least one market-data route returned a usable quote."
+            if ok
+            else "Neither Twelve Data nor the free delayed fallbacks returned a usable quote."
+        ),
+        "twelveData": twelve,
+        "fallback": fallback,
+    }), 200 if ok else 503
 
 @bp.get("/market/search")
 @login_required

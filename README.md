@@ -36,7 +36,7 @@ Browser
        ├─ Portfolio state API
        ├─ Normalised trade storage
        ├─ European ETF market proxy (34 exchanges, EUR-normalised)
-       │    ├─ Twelve Data  — real-time (optional API key)
+       │    ├─ Twelve Data  — optional; exchange entitlement/delay varies
        │    ├─ Stooq        — delayed fallback
        │    └─ Yahoo Finance — delayed fallback
        └─ SQLite locally / Turso in production
@@ -246,7 +246,7 @@ For moving between domains or browsers:
 
 ## Market data note
 
-Northstar fetches quotes only for the exact exchange listings in your portfolio and normalises them to EUR. No API key is required — Stooq and Yahoo Finance are used as delayed fallbacks. For real-time pricing, add a free [Twelve Data](https://twelvedata.com) key via `TWELVE_DATA_API_KEY`.
+Northstar fetches quotes only for the exact exchange listings in your portfolio and normalises them to EUR. No API key is required — Stooq and Yahoo Finance are used as delayed fallbacks. Twelve Data is optional; exchange entitlement and delay depend on the account plan. Xetra free-tier access should not be presented as real-time.
 
 Supported exchanges include Xetra, Frankfurt, London, Euronext (Paris, Amsterdam, Brussels, Lisbon), Borsa Italiana, Nasdaq Nordic, and more — see `northstar/market_provider.py` for the full list. Quotes can be delayed and may differ from broker-indicative or ask prices.
 
