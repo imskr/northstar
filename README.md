@@ -22,6 +22,7 @@ Search the built-in ETF catalog by name, ticker, or ISIN, pick the exact exchang
 - Animated portfolio and benchmark charts
 - Allocation drift and contribution-based rebalancing
 - €100k goal ETA and an interactive "one extra decision" slider
+- Monte Carlo projection — 10,000 simulated paths, an interactive percentile fan chart (in Goal Lab and as an Overview chart mode), and probability of reaching your goal by its target date
 - JSON export/import for portable backups
 - Docker, Render, and GitHub Actions configuration
 

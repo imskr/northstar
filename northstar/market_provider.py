@@ -51,28 +51,6 @@ EUROPEAN_EXCHANGES = {
     ".RO": "Bucharest Stock Exchange",
 }
 
-# EODHD (EOD Historical Data) exchange codes — demo key, no auth required, no IP restrictions.
-# Works reliably from cloud servers and covers all major European exchanges.
-EOHHD_EXCHANGES: dict[str, str] = {
-    ".DE": "XETRA",
-    ".F": "F",
-    ".L": "LSE",
-    ".PA": "PA",
-    ".AS": "AS",
-    ".BR": "BR",
-    ".LS": "LB",
-    ".MI": "MI",
-    ".MC": "MC",
-    ".SW": "SW",
-    ".VI": "VI",
-    ".IR": "IRGX",
-    ".ST": "STO",
-    ".CO": "CO",
-    ".HE": "HEX",
-    ".OL": "OL",
-    ".WA": "WAR",
-}
-
 TWELVE_EXCHANGES = {
     ".DE": "XETR",
     ".F": "XFRA",
@@ -578,84 +556,6 @@ def _twelve_history_payloads(symbols: list[str], range_: str) -> tuple[dict[str,
         except (MarketRateLimited, MarketEntitlementError, RuntimeError) as exc:
             errors[symbol] = str(exc)
     return parsed, errors
-
-# ── EODHD (free demo key, no IP restrictions) ────────────────────────────────
-
-def _eodhd_symbol(symbol: str) -> str | None:
-    """Map e.g. VWCE.DE → VWCE.XETRA for the EODHD API. Returns None if no mapping."""
-    upper = symbol.upper()
-    for suffix, exchange in EOHHD_EXCHANGES.items():
-        if upper.endswith(suffix):
-            return f"{upper[:-len(suffix)]}.{exchange}"
-    return None
-
-
-def _eodhd_quote(symbol: str) -> dict:
-    eodhd_sym = _eodhd_symbol(symbol)
-    if not eodhd_sym:
-        raise RuntimeError(f"EODHD: no exchange mapping for {symbol}.")
-    url = f"https://eodhd.com/api/real-time/{quote(eodhd_sym, safe='.')}?api_token=demo&fmt=json"
-    data = _fetch_json(url, timeout=12)
-    # EODHD may return a list for batch calls; unwrap if needed.
-    if isinstance(data, list):
-        data = data[0] if data else {}
-    price = _finite(data.get("close")) or _finite(data.get("open"))
-    if not price or price <= 0:
-        raise RuntimeError(f"EODHD returned no usable price for {symbol}.")
-    _, suffix, _ = _symbol_parts(symbol)
-    prev = _finite(data.get("previousClose"))
-    ts = int(data.get("timestamp") or datetime.now(UTC).timestamp())
-    return {
-        "provider": "EODHD",
-        "realtime": False,
-        "delayed": True,
-        "name": symbol.split(".")[0],
-        "currency": SUFFIX_CURRENCIES.get(suffix, "EUR"),
-        "price": price,
-        "previous": prev,
-        "timestamp": ts,
-        "market_state": None,
-        "history": [],
-    }
-
-
-def _eodhd_history(symbol: str, range_: str) -> dict:
-    eodhd_sym = _eodhd_symbol(symbol)
-    if not eodhd_sym:
-        raise RuntimeError(f"EODHD: no exchange mapping for {symbol}.")
-    days = RANGE_DAYS.get(range_, 400)
-    end = date.today()
-    start = end - timedelta(days=days)
-    url = (
-        f"https://eodhd.com/api/eod/{quote(eodhd_sym, safe='.')}?"
-        f"api_token=demo&period=d&from={start.isoformat()}&to={end.isoformat()}&fmt=json"
-    )
-    raw = _fetch_json(url, timeout=15)
-    if not isinstance(raw, list):
-        raise RuntimeError(f"EODHD returned unexpected format for {symbol}.")
-    rows: list[dict] = []
-    for item in raw:
-        close = _finite(item.get("adjusted_close") or item.get("close"))
-        day = str(item.get("date") or "")[:10]
-        if close and close > 0 and re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
-            rows.append({"date": day, "close": close})
-    rows.sort(key=lambda x: x["date"])
-    if len(rows) < 2:
-        raise RuntimeError(f"EODHD returned insufficient history for {symbol}.")
-    _, suffix, _ = _symbol_parts(symbol)
-    return {
-        "provider": "EODHD",
-        "realtime": False,
-        "delayed": True,
-        "name": symbol.split(".")[0],
-        "currency": SUFFIX_CURRENCIES.get(suffix, "EUR"),
-        "price": rows[-1]["close"],
-        "previous": rows[-2]["close"],
-        "timestamp": int(datetime.fromisoformat(rows[-1]["date"]).replace(tzinfo=UTC).timestamp()),
-        "market_state": None,
-        "history": rows,
-    }
-
 
 # ── Stooq ─────────────────────────────────────────────────────────────────────
 
