@@ -253,18 +253,57 @@ def _request(
         raise RuntimeError("Market service timed out.") from exc
 
 
-def _fetch_json_yf(url: str) -> dict:
-    """Fetch JSON from Yahoo Finance.
+def _yf_history(symbol: str, period: str) -> dict:
+    """Fetch daily closes via the yfinance library.
 
-    Yahoo Finance's v8 chart API responds to server-side requests without
-    cookies or a crumb token (confirmed: returns 429 on rate-limit, not GDPR
-    redirect).  A browser User-Agent and Referer are sufficient.
+    yfinance handles Yahoo Finance authentication (cookies, crumb, GDPR
+    consent) completely automatically and is regularly updated to stay
+    compatible with Yahoo's API changes. This is far more reliable than
+    any hand-rolled HTTP approach from a cloud server.
     """
-    return _fetch_json(
-        url,
-        timeout=12,
-        extra_headers={"Referer": "https://finance.yahoo.com/"},
-    )
+    import yfinance as yf  # imported lazily to avoid slowing down startup
+
+    ticker = yf.Ticker(symbol)
+    hist = ticker.history(period=period, interval="1d", auto_adjust=True, actions=False)
+
+    if hist.empty:
+        raise RuntimeError(f"yfinance returned no data for {symbol}.")
+
+    rows = [
+        {"date": str(dt.date()), "close": float(close)}
+        for dt, close in zip(hist.index, hist["Close"])
+        if float(close) > 0
+    ]
+    if len(rows) < 2:
+        raise RuntimeError(f"yfinance returned insufficient history for {symbol}.")
+
+    _, suffix, _ = _symbol_parts(symbol)
+
+    # Prefer the fast_info last_price for the current quote (more up-to-date).
+    price = rows[-1]["close"]
+    try:
+        fi = ticker.fast_info
+        lp = float(fi.last_price or 0)
+        if lp > 0:
+            price = lp
+    except Exception:  # noqa: BLE001
+        pass
+
+    prev = rows[-2]["close"]
+    ts = int(hist.index[-1].timestamp())
+
+    return {
+        "provider": "Yahoo Finance",
+        "realtime": False,
+        "delayed": True,
+        "name": symbol.split(".")[0],
+        "currency": SUFFIX_CURRENCIES.get(suffix, "EUR"),
+        "price": price,
+        "previous": prev,
+        "timestamp": ts,
+        "market_state": None,
+        "history": rows,
+    }
 
 
 def _fetch_json(url: str, *, timeout: float = 10.0, fresh: bool = False, extra_headers: dict | None = None) -> dict:
@@ -691,45 +730,20 @@ def _stooq_history(symbol: str, range_: str) -> dict:
 
 
 def _yahoo_history(symbol: str, range_: str) -> dict:
-    encoded = quote(symbol, safe="")
-    params = urlencode({"range": range_, "interval": "1d", "events": "div,splits", "includePrePost": "false"})
-    # Use crumb-authenticated helper; fall back to query2 host if query1 fails.
-    try:
-        data = _fetch_json_yf(f"https://query1.finance.yahoo.com/v8/finance/chart/{encoded}?{params}")
-    except RuntimeError:
-        data = _fetch_json_yf(f"https://query2.finance.yahoo.com/v8/finance/chart/{encoded}?{params}")
-    chart = data.get("chart") or {}
-    if chart.get("error"):
-        raise RuntimeError(chart["error"].get("description") or str(chart["error"]))
-    result = (chart.get("result") or [None])[0]
-    if not result:
-        raise RuntimeError(f"Yahoo returned no history for {symbol}.")
-    meta = result.get("meta") or {}
-    timestamps = result.get("timestamp") or []
-    quotes = (result.get("indicators") or {}).get("quote") or []
-    closes = (quotes[0] if quotes else {}).get("close") or []
-    rows = []
-    for timestamp, value in zip(timestamps, closes):
-        close = _finite(value)
-        if close and close > 0:
-            rows.append({"date": datetime.fromtimestamp(int(timestamp), UTC).date().isoformat(), "close": close})
-    if len(rows) < 2:
-        raise RuntimeError(f"Yahoo returned insufficient history for {symbol}.")
-    return {
-        "provider": "Yahoo Finance",
-        "realtime": False,
-        "delayed": True,
-        "name": meta.get("longName") or meta.get("shortName") or symbol.split(".")[0],
-        "currency": str(meta.get("currency") or SUFFIX_CURRENCIES.get(_symbol_parts(symbol)[1], "EUR")),
-        "price": _finite(meta.get("regularMarketPrice")) or rows[-1]["close"],
-        "previous": _finite(meta.get("chartPreviousClose")) or rows[-2]["close"],
-        "timestamp": int(meta.get("regularMarketTime") or datetime.now(UTC).timestamp()),
-        "market_state": meta.get("marketState"),
-        "history": rows,
-    }
+    """Proxy to _yf_history with a range→period mapping."""
+    # yfinance accepts the same period strings we use for range_ — 5d, 1mo, etc.
+    period = range_ if range_ in RANGES else "5d"
+    return _yf_history(symbol, period)
 
 
 def _load_quote(symbol: str, *, prefer_realtime: bool = True) -> dict:
+    """Return a quote payload for *symbol*, trying providers in priority order.
+
+    Priority:
+    1. Twelve Data (real-time, requires API key).
+    2. yfinance / Yahoo Finance (delayed, free, works from any server).
+    3. Stooq (delayed, free, best-effort).
+    """
     errors: list[str] = []
 
     if prefer_realtime and real_time_configured():
@@ -738,46 +752,35 @@ def _load_quote(symbol: str, *, prefer_realtime: bool = True) -> dict:
         except (MarketRateLimited, MarketEntitlementError, RuntimeError) as exc:
             errors.append(f"Twelve Data: {exc}")
 
-    # Keep an explicitly configured EODHD account as an optional fallback.
-    eodhd_token = os.getenv("EODHD_API_TOKEN", "").strip()
-    if eodhd_token and eodhd_token.lower() != "demo":
-        try:
-            payload = _eodhd_quote(symbol)
-            payload["provider_errors"] = errors.copy()
-            return payload
-        except (MarketRateLimited, RuntimeError) as exc:
-            errors.append(f"EODHD: {exc}")
+    # yfinance is the primary free fallback — it handles Yahoo Finance
+    # authentication (cookies / crumb / GDPR) transparently.
+    try:
+        payload = _yf_history(symbol, "5d")
+        payload["history"] = payload.get("history", [])[-2:]
+        payload["provider_errors"] = errors.copy()
+        return payload
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"Yahoo (yfinance): {exc}")
 
-    # Stooq has direct coverage for the Xetra listings used by Northstar and is
-    # less fragile on Render than Yahoo's cookie/crumb flow. It remains a delayed,
-    # best-effort source, so Yahoo is retained as an independent fallback.
-    suffix = exchange_for_symbol(symbol)[0]
-    if suffix == ".DE":
-        loaders = (
-            ("Stooq", lambda: _stooq_quote(symbol)),
-            ("Stooq history", lambda: _stooq_history(symbol, "5d")),
-            ("Yahoo", lambda: _yahoo_history(symbol, "5d")),
-        )
-    else:
-        loaders = (
-            ("Yahoo", lambda: _yahoo_history(symbol, "5d")),
-            ("Stooq", lambda: _stooq_quote(symbol)),
-            ("Stooq history", lambda: _stooq_history(symbol, "5d")),
-        )
-
-    for provider_name, loader in loaders:
+    # Stooq as last resort.
+    for loader_name, loader in (("Stooq", lambda: _stooq_quote(symbol)), ("Stooq-history", lambda: _stooq_history(symbol, "5d"))):
         try:
             payload = loader()
-            if provider_name == "Yahoo":
-                payload["history"] = payload.get("history", [])[-2:]
             payload["provider_errors"] = errors.copy()
             return payload
         except (MarketRateLimited, RuntimeError) as exc:
-            errors.append(f"{provider_name}: {exc}")
+            errors.append(f"{loader_name}: {exc}")
 
     raise RuntimeError(" | ".join(errors) or f"No quote provider returned {symbol}.")
 
 def _load_history(symbol: str, range_: str, *, prefer_realtime: bool = True) -> dict:
+    """Return a history payload for *symbol* covering *range_*.
+
+    Priority:
+    1. Twelve Data (real-time, requires API key).
+    2. yfinance / Yahoo Finance (delayed, free, works from any server).
+    3. Stooq (delayed, free, best-effort).
+    """
     errors: list[str] = []
 
     if prefer_realtime and real_time_configured():
@@ -786,28 +789,19 @@ def _load_history(symbol: str, range_: str, *, prefer_realtime: bool = True) -> 
         except (MarketRateLimited, MarketEntitlementError, RuntimeError) as exc:
             errors.append(f"Twelve Data: {exc}")
 
-    eodhd_token = os.getenv("EODHD_API_TOKEN", "").strip()
-    if eodhd_token and eodhd_token.lower() != "demo":
-        try:
-            payload = _eodhd_history(symbol, range_)
-            payload["provider_errors"] = errors.copy()
-            return payload
-        except (MarketRateLimited, RuntimeError) as exc:
-            errors.append(f"EODHD: {exc}")
+    try:
+        payload = _yf_history(symbol, range_)
+        payload["provider_errors"] = errors.copy()
+        return payload
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"Yahoo (yfinance): {exc}")
 
-    suffix = exchange_for_symbol(symbol)[0]
-    loaders = (
-        (("Stooq", lambda: _stooq_history(symbol, range_)), ("Yahoo", lambda: _yahoo_history(symbol, range_)))
-        if suffix == ".DE"
-        else (("Yahoo", lambda: _yahoo_history(symbol, range_)), ("Stooq", lambda: _stooq_history(symbol, range_)))
-    )
-    for provider_name, loader in loaders:
-        try:
-            payload = loader()
-            payload["provider_errors"] = errors.copy()
-            return payload
-        except (MarketRateLimited, RuntimeError) as exc:
-            errors.append(f"{provider_name}: {exc}")
+    try:
+        payload = _stooq_history(symbol, range_)
+        payload["provider_errors"] = errors.copy()
+        return payload
+    except (MarketRateLimited, RuntimeError) as exc:
+        errors.append(f"Stooq: {exc}")
 
     raise RuntimeError(" | ".join(errors) or f"No history provider returned {symbol}.")
 
