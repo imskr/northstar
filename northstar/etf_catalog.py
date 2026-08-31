@@ -39,6 +39,10 @@ def _catalog() -> tuple[dict, ...]:
     return tuple(result)
 
 
+def list_catalog() -> list[dict]:
+    return [dict(item) for item in _catalog()]
+
+
 def catalog_stats() -> dict:
     instruments = _catalog()
     return {

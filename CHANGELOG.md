@@ -2,6 +2,24 @@
 
 ## 1.1.0 - 2026-08-27
 
+- **Fixed (data-corrupting bug):** the ETF's full name — correctly set from the
+  catalog when you add it — was being silently overwritten with its bare ticker
+  on every single price sync. Root cause: Stooq (the primary quote provider) has
+  no fund names in its API, so the backend's quote payload reasonably falls back
+  to `name: ticker` when no real name is available — but the frontend was
+  blindly trusting that fallback and using it to overwrite the good name, every
+  time. `applyUnifiedAsset()` now only accepts a payload name that's genuinely
+  different from the ticker, and keeps the existing name otherwise. This affected
+  the "The portfolio" holding cards on Overview, which showed the ticker twice
+  (once as the heading, once where the full name should be).
+- **Added:** the frontend now fetches the full ETF catalog once on load (new
+  `GET /api/market/catalog` endpoint, backed by `list_catalog()` in
+  `etf_catalog.py` — the same `data/etf_catalog.json` used when adding an ETF)
+  and treats it as the authoritative source for name/issuer/ISIN in
+  `rebuildMeta()`. This fixes the display for *already-affected* portfolios
+  immediately, on every render, with no per-asset network round trip and no
+  need to mutate or re-save your stored data — the catalog only overrides
+  known symbols, so manually-added/custom listings are unaffected.
 - **Changed:** simplified the Overview "Northstar action" card per feedback — it
   now shows just the status pill, total portfolio value as the headline number
   (previously the monthly plan amount), and total invested underneath. Dropped the

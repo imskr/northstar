@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from flask import Blueprint, jsonify, request
 
 from .auth import login_required
-from .etf_catalog import catalog_stats, resolve_symbol, search_catalog
+from .etf_catalog import catalog_stats, list_catalog, resolve_symbol, search_catalog
 from .market_provider import (
     EUROPEAN_EXCHANGES,
     clear_request_td_key,
@@ -220,6 +220,12 @@ def market_search():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify({"results": results, "exchanges": EUROPEAN_EXCHANGES, "catalog": catalog_stats()})
+
+
+@bp.get("/market/catalog")
+@login_required
+def market_catalog():
+    return jsonify({"instruments": list_catalog()})
 
 
 @bp.get("/market/catalog/resolve")
