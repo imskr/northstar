@@ -5,13 +5,10 @@
 **A private, self-hosted portfolio ledger for long-term European ETF investors.**
 
 Track fractional positions, XIRR, allocation drift, and your path to €100k —
-across any ETF listed on 34 European exchanges, normalised to EUR.
+across any ETF listed on 34 European exchanges, normalised to EUR. You can also add more ETFs to the catalog that are not listed.
 
 [![CI](https://img.shields.io/badge/CI-GitHub_Actions-141414?logo=githubactions&logoColor=FFD927)](.github/workflows/ci.yml)
-[![Python](https://img.shields.io/badge/Python-3.11%2B-141414?logo=python&logoColor=FFD927)](pyproject.toml)
-[![Flask](https://img.shields.io/badge/Flask-3.x-141414?logo=flask&logoColor=FFD927)](requirements.txt)
 [![License: MIT](https://img.shields.io/badge/License-MIT-141414)](LICENSE)
-[![Code style: Ruff](https://img.shields.io/badge/Code_style-Ruff-141414)](pyproject.toml)
 
 <img src="docs/screenshots/overview.png" alt="Northstar overview dashboard" width="900">
 
@@ -47,12 +44,6 @@ buy the same ETFs every month for a decade. It answers three questions, honestly
 | 🎲 **Monte Carlo** | 10,000 lognormal paths calibrated to your portfolio's realised volatility, with a percentile fan chart |
 | 🔐 **Private by design** | Email/password auth, HttpOnly database-backed sessions, account-scoped data, JSON export/import backups |
 | 🗄️ **Zero-config storage** | Plain SQLite locally; [Turso](https://turso.tech)/libSQL in production with the same schema |
-
-## Screenshots
-
-| Goal Lab | Positions & trade studio |
-|---|---|
-| ![Goal Lab](docs/screenshots/goal-lab.png) | ![Positions](docs/screenshots/positions.png) |
 
 ## Quick start
 
