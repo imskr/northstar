@@ -19,6 +19,7 @@ Search the built-in ETF catalog by name, ticker, or ISIN, pick the exact exchang
 - Normalised transaction table plus portfolio-state persistence
 - Fractional shares and weighted average entry prices
 - Optional realised P&L override for sell transactions
+- XIRR (money-weighted return) per ETF and for the whole portfolio, computed from exact transaction dates and amounts
 - Animated portfolio and benchmark charts
 - Allocation drift and contribution-based rebalancing
 - €100k goal ETA and an interactive "one extra decision" slider

@@ -2,6 +2,18 @@
 
 ## 1.1.0 - 2026-08-27
 
+- **Added:** XIRR (money-weighted return, accounting for the exact size and
+  timing of every cash flow) — shown per ETF on its holding card, and as
+  "Portfolio XIRR" on the Overview hero, replacing "Open cost basis". Uses a
+  Newton-Raphson solver with a guaranteed-convergent bisection fallback, the
+  standard actual/365 day-count convention (matching Excel/Google Sheets'
+  XIRR), and treats today's synced market value as the final cash flow for
+  open positions. Verified against known-exact cases (including leap-year day
+  counts to 1e-9 precision) and by confirming NPV at the solved rate is zero
+  to floating-point precision for realistic multi-transaction scenarios.
+  Baseline holdings (shares held before you started tracking) now have an
+  optional "Baseline as of" date in Positions — without it, they're excluded
+  from XIRR rather than assigned a guessed date that could distort the result.
 - **Fixed (data-corrupting bug):** the ETF's full name — correctly set from the
   catalog when you add it — was being silently overwritten with its bare ticker
   on every single price sync. Root cause: Stooq (the primary quote provider) has
