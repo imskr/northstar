@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 100" role="img" aria-label="Amundi">
+<circle cx="30" cy="50" r="19" fill="#1e3a8a"/>
+<circle cx="30" cy="50" r="19" fill="none" stroke="#f7a800" stroke-width="4"/>
+<text x="60" y="63" font-family="Arial, Helvetica, sans-serif" font-size="32" font-weight="700" fill="#1e3a8a">Amundi</text>
+</svg>

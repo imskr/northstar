@@ -2,6 +2,21 @@
 
 ## 1.1.0 - 2026-08-27
 
+- **Changed:** on each holding card, the fund's full name is now the prominent
+  heading (previously the ticker), with the ticker moved below as a smaller
+  subtitle — swapped per feedback. Renamed the underlying CSS classes
+  (`.ticker`→`.holding-title`, `.holding-name`→`.holding-symbol`) to match,
+  since they were each used in exactly one place.
+- **Added:** issuer logos on holding cards, self-hosted in `static/logos/` and
+  referenced by a new `logo` field on each entry in `data/etf_catalog.json`.
+  These are original typographic wordmark badges, not copies of the issuers'
+  actual trademarked logos — bundling official brand marks into a
+  redistributable open-source repo isn't something we have rights to do, and
+  an earlier attempt to hotlink logos from an external favicon service turned
+  out to be unreliable in practice. This version has no external dependency
+  at all: it's a local file lookup through the catalog, with the existing
+  colour-initials badge as a graceful fallback for any issuer not yet covered
+  or a symbol added outside the catalog.
 - **Added:** XIRR (money-weighted return, accounting for the exact size and
   timing of every cash flow) — shown per ETF on its holding card, and as
   "Portfolio XIRR" on the Overview hero, replacing "Open cost basis". Uses a

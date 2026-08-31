@@ -33,6 +33,7 @@ def _catalog() -> tuple[dict, ...]:
             "nativeCurrency": str(raw.get("nativeCurrency") or ""),
             "issuer": str(raw.get("issuer") or ""),
             "assetClass": str(raw.get("assetClass") or "ETF"),
+            "logo": str(raw.get("logo") or ""),
         }
         seen.add(symbol)
         result.append(item)
@@ -71,6 +72,7 @@ def resolve_symbol(value: str) -> dict:
         "nativeCurrency": "",
         "issuer": "",
         "assetClass": "ETF",
+        "logo": "",
         "custom": True,
     }
 
