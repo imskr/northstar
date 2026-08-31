@@ -46,6 +46,7 @@ def verify_password(password: str, encoded: str) -> bool:
         scheme, n, r, p, salt_b64, digest_b64 = encoded.split("$", 5)
         if scheme != "scrypt":
             return False
+
         def pad(value: str) -> str:
             return value + "=" * (-len(value) % 4)
 

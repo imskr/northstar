@@ -1,5 +1,33 @@
 # Changelog
 
+## 2.0.0 - 2026-08-31
+
+- **Changed:** complete visual redesign — a neo-brutalist system (cream canvas,
+  3px ink borders, hard offset shadows, yellow/lime/pink accents) with Archivo
+  Black display type and Space Mono numerals. Chart palettes retuned to match
+  (black portfolio line, blue Nasdaq-100, red S&P 500, amber goal line).
+- **Changed:** the frontend monolith is split — `static/index.html` now holds
+  markup only, with styles in `static/css/app.css` and the application bundle
+  in `static/js/app.js` (cache-busted via `?v=`).
+- **Fixed:** chart hover tooltips were clipped by the card frame near chart
+  edges; cards no longer clip overflow and the tooltip stacks above the sticky
+  header.
+- **Fixed:** "Goal acceleration" displayed unrounded float months.
+- **Changed:** Ruff now lints and formats the entire codebase — the
+  `market_provider.py` exclusion is gone and every file passes
+  `ruff check` + `ruff format --check`.
+- **Changed:** the market-provider regression tests now assert the documented
+  provider contract (Twelve Data → Yahoo Finance → Stooq) including the
+  Yahoo-failure fallback path; frontend regression checks read the split
+  `app.js` bundle.
+- **Added:** GitHub Actions CI (`.github/workflows/ci.yml`) running Ruff lint,
+  format check, and pytest on Python 3.11 and 3.12.
+- **Added:** rewritten README with badges and current screenshots
+  (`docs/screenshots/`), expanded deployment guide, refreshed architecture and
+  contributing docs.
+- **Removed:** committed local database (`data/northstar.db`) and `.DS_Store`;
+  `.gitignore` now covers `data/*.db` and OS cruft.
+
 ## 1.1.0 - 2026-08-27
 
 - **Changed:** on each holding card, the fund's full name is now the prominent

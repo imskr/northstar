@@ -27,7 +27,9 @@ def _truthy(value: str | None) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _fallback_many(symbols: list[str], range_: str, *, include_history: bool, fresh: bool) -> tuple[dict[str, dict], dict[str, str]]:
+def _fallback_many(
+    symbols: list[str], range_: str, *, include_history: bool, fresh: bool
+) -> tuple[dict[str, dict], dict[str, str]]:
     data: dict[str, dict] = {}
     errors: dict[str, str] = {}
     workers = 1 if fresh else min(2, max(1, len(symbols)))
@@ -70,7 +72,11 @@ def market():
 
 
 def _market_handler():
-    symbols = list(dict.fromkeys(normalize_symbol(value) for value in request.args.get("symbols", "").split(",") if value.strip()))
+    symbols = list(
+        dict.fromkeys(
+            normalize_symbol(value) for value in request.args.get("symbols", "").split(",") if value.strip()
+        )
+    )
     if not symbols:
         return jsonify({"error": "Add at least one ETF symbol."}), 400
     if len(symbols) > 24:
@@ -119,23 +125,29 @@ def _market_handler():
             if not include_history
             else "Historical prices could not be loaded. Existing chart history was left unchanged."
         )
-        return jsonify({
-            "error": message,
-            "freshRequested": fresh,
-            "mode": mode,
-            "realTimeConfigured": configured,
-            "liveIssues": live_issues,
-            "errors": final_errors,
-        }), 503
+        return jsonify(
+            {
+                "error": message,
+                "freshRequested": fresh,
+                "mode": mode,
+                "realTimeConfigured": configured,
+                "liveIssues": live_issues,
+                "errors": final_errors,
+            }
+        ), 503
 
     providers = sorted({str(item.get("provider") or "Market provider") for item in data.values()})
     realtime = bool(data) and all(bool(item.get("realtime")) for item in data.values())
     warnings: list[str] = []
     if not configured and not include_history:
-        warnings.append("No entitled real-time feed is configured; Stooq/Yahoo supplied the latest available delayed data where possible.")
+        warnings.append(
+            "No entitled real-time feed is configured; Stooq/Yahoo supplied the latest available delayed data where possible."
+        )
     elif live_issues and not include_history:
         details = "; ".join(f"{symbol}: {message}" for symbol, message in live_issues.items())
-        warnings.append(f"Twelve Data live feed was unavailable ({details}). A delayed fallback was used where possible.")
+        warnings.append(
+            f"Twelve Data live feed was unavailable ({details}). A delayed fallback was used where possible."
+        )
     elif not include_history and not realtime:
         warnings.append("Latest available quotes were synced, but the selected feed is delayed.")
     if final_errors:
@@ -143,25 +155,35 @@ def _market_handler():
 
     diagnostic_parts = []
     if live_issues:
-        diagnostic_parts.append("Twelve Data: " + " | ".join(f"{symbol}: {message}" for symbol, message in live_issues.items()))
+        diagnostic_parts.append(
+            "Twelve Data: " + " | ".join(f"{symbol}: {message}" for symbol, message in live_issues.items())
+        )
     if final_errors:
-        diagnostic_parts.append("Fallbacks: " + " | ".join(f"{symbol}: {message}" for symbol, message in final_errors.items()))
+        diagnostic_parts.append(
+            "Fallbacks: " + " | ".join(f"{symbol}: {message}" for symbol, message in final_errors.items())
+        )
     if not diagnostic_parts:
-        diagnostic_parts.append("Live provider request completed successfully." if realtime else "A delayed provider supplied the latest available quote.")
+        diagnostic_parts.append(
+            "Live provider request completed successfully."
+            if realtime
+            else "A delayed provider supplied the latest available quote."
+        )
 
-    return jsonify({
-        "provider": " + ".join(providers),
-        "updatedAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-        "freshRequested": fresh,
-        "mode": mode,
-        "realtime": realtime,
-        "realTimeConfigured": configured,
-        "warnings": warnings,
-        "diagnostic": " ".join(diagnostic_parts),
-        "data": data,
-        "liveIssues": live_issues,
-        "errors": final_errors,
-    })
+    return jsonify(
+        {
+            "provider": " + ".join(providers),
+            "updatedAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "freshRequested": fresh,
+            "mode": mode,
+            "realtime": realtime,
+            "realTimeConfigured": configured,
+            "warnings": warnings,
+            "diagnostic": " ".join(diagnostic_parts),
+            "data": data,
+            "liveIssues": live_issues,
+            "errors": final_errors,
+        }
+    )
 
 
 @bp.get("/market/status")
@@ -197,17 +219,20 @@ def market_status():
         fallback = {"ok": False, "error": str(exc)}
 
     ok = bool(twelve.get("ok") or fallback.get("ok"))
-    return jsonify({
-        "ok": ok,
-        "symbol": symbol,
-        "message": (
-            "At least one market-data route returned a usable quote."
-            if ok
-            else "Neither Twelve Data nor the free delayed fallbacks returned a usable quote."
-        ),
-        "twelveData": twelve,
-        "fallback": fallback,
-    }), 200 if ok else 503
+    return jsonify(
+        {
+            "ok": ok,
+            "symbol": symbol,
+            "message": (
+                "At least one market-data route returned a usable quote."
+                if ok
+                else "Neither Twelve Data nor the free delayed fallbacks returned a usable quote."
+            ),
+            "twelveData": twelve,
+            "fallback": fallback,
+        }
+    ), 200 if ok else 503
+
 
 @bp.get("/market/search")
 @login_required
@@ -216,7 +241,11 @@ def market_search():
     if len(query) < 2:
         return jsonify({"results": [], "exchanges": EUROPEAN_EXCHANGES, "catalog": catalog_stats()})
     try:
-        results = search_catalog(query, exchange_suffix=request.args.get("exchange", ""), limit=min(request.args.get("limit", default=16, type=int) or 16, 30))
+        results = search_catalog(
+            query,
+            exchange_suffix=request.args.get("exchange", ""),
+            limit=min(request.args.get("limit", default=16, type=int) or 16, 30),
+        )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify({"results": results, "exchanges": EUROPEAN_EXCHANGES, "catalog": catalog_stats()})

@@ -270,7 +270,9 @@ class TursoHttpDatabase(Database):
         columns = [column.get("name") or "" for column in result.get("cols", [])]
         rows: list[dict[str, Any]] = []
         for raw_row in result.get("rows", []):
-            rows.append({name: self._decode_value(value) for name, value in zip(columns, raw_row, strict=False)})
+            rows.append(
+                {name: self._decode_value(value) for name, value in zip(columns, raw_row, strict=False)}
+            )
         raw_rowid = result.get("last_insert_rowid")
         rowid = int(raw_rowid) if raw_rowid not in {None, ""} else None
         return QueryResult(

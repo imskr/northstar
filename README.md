@@ -1,261 +1,161 @@
-# Northstar Portfolio OS
+<div align="center">
 
-![Northstar login](docs/auth-screen.png)
+# ⭐ Northstar
 
-A private, open-source ETF portfolio ledger for long-term investors. Northstar tracks fractional positions, weighted average cost, realised and unrealised P&L, allocation drift, benchmark comparisons, goal projections, and quarterly reviews — across **any ETF listed on 34 European exchanges**.
+**A private, self-hosted portfolio ledger for long-term European ETF investors.**
 
-Search the built-in ETF catalog by name, ticker, or ISIN, pick the exact exchange listing you trade, and Northstar normalises every position to EUR for a single comparable view. You are not limited to any preset selection of funds.
+Track fractional positions, XIRR, allocation drift, and your path to €100k —
+across any ETF listed on 34 European exchanges, normalised to EUR.
 
-> Northstar is a personal tracking tool. It is not a broker, tax engine, trading system, or investment adviser.
+[![CI](https://img.shields.io/badge/CI-GitHub_Actions-141414?logo=githubactions&logoColor=FFD927)](.github/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-141414?logo=python&logoColor=FFD927)](pyproject.toml)
+[![Flask](https://img.shields.io/badge/Flask-3.x-141414?logo=flask&logoColor=FFD927)](requirements.txt)
+[![License: MIT](https://img.shields.io/badge/License-MIT-141414)](LICENSE)
+[![Code style: Ruff](https://img.shields.io/badge/Code_style-Ruff-141414)](pyproject.toml)
 
-## Highlights
+<img src="docs/screenshots/overview.png" alt="Northstar overview dashboard" width="900">
 
-- **Open ETF catalog** — search by name, ticker, or ISIN across 34 European exchanges, or add any symbol directly
-- **EUR normalisation** — non-EUR listings (GBP, CHF, SEK, …) are converted so every position is comparable
-- **Market data without an API key** — delayed quotes via Stooq + Yahoo Finance out of the box; upgrade to real-time with a free Twelve Data key
-- Modern Ledger editorial interface
-- Secure email/password login with HttpOnly database-backed sessions
-- Local SQLite development with zero configuration; Turso/libSQL in production
-- Normalised transaction table plus portfolio-state persistence
-- Fractional shares and weighted average entry prices
-- Optional realised P&L override for sell transactions
-- XIRR (money-weighted return) per ETF and for the whole portfolio, computed from exact transaction dates and amounts
-- Animated portfolio and benchmark charts
-- Allocation drift and contribution-based rebalancing
-- €100k goal ETA and an interactive "one extra decision" slider
-- Monte Carlo projection — 10,000 simulated paths, an interactive percentile fan chart (in Goal Lab and as an Overview chart mode), and probability of reaching your goal by its target date
-- JSON export/import for portable backups
-- Docker, Render, and GitHub Actions configuration
+</div>
+
+> **Disclaimer** — Northstar is a personal tracking tool. It is not a broker, tax
+> engine, trading system, or investment adviser. Every projection it draws is a
+> mathematical illustration, not a promise.
+
+---
+
+## Why Northstar
+
+Most portfolio trackers are built for traders. Northstar is built for people who
+buy the same ETFs every month for a decade. It answers three questions, honestly:
+
+1. **Where am I?** — live EUR value, realised + unrealised P&L, money-weighted
+   XIRR from your exact cash flows.
+2. **Am I on plan?** — allocation drift against permanent targets, with
+   contribution-based rebalancing that never tells you to sell.
+3. **When do I get there?** — goal ETA, a 10,000-path Monte Carlo fan, and the
+   probability of hitting €100k by your target date.
+
+## Features
+
+| | |
+|---|---|
+| 🗂️ **Open ETF catalog** | Search by name, ticker, or ISIN across 34 European venues, or add any exchange symbol directly |
+| 💶 **EUR normalisation** | GBP, CHF, SEK… listings converted so every position is comparable |
+| 📈 **Market data, no API key** | Delayed quotes via Yahoo Finance with a Stooq fallback; optional free [Twelve Data](https://twelvedata.com) key for real-time |
+| 🧮 **Honest accounting** | Fractional shares, weighted average cost, realised P&L (with optional broker override), per-fund and portfolio XIRR |
+| 🎯 **Goal Lab** | €100k ETA, "one extra decision" slider, milestone dates, compounding map, DCA backtest vs Nasdaq-100 and S&P 500 |
+| 🎲 **Monte Carlo** | 10,000 lognormal paths calibrated to your portfolio's realised volatility, with a percentile fan chart |
+| 🔐 **Private by design** | Email/password auth, HttpOnly database-backed sessions, account-scoped data, JSON export/import backups |
+| 🗄️ **Zero-config storage** | Plain SQLite locally; [Turso](https://turso.tech)/libSQL in production with the same schema |
+
+## Screenshots
+
+| Goal Lab | Positions & trade studio |
+|---|---|
+| ![Goal Lab](docs/screenshots/goal-lab.png) | ![Positions](docs/screenshots/positions.png) |
+
+## Quick start
+
+**Requirements:** Python 3.11+ (3.14 works — the local profile has no native
+libSQL dependency).
+
+```bash
+git clone https://github.com/imskr/northstar.git
+cd northstar
+make install   # creates .venv and installs dev dependencies
+make init-db   # creates data/northstar.db from schema.sql
+make dev       # starts http://127.0.0.1:8000 and loads .env
+```
+
+Or without Make:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python scripts/init_db.py
+python scripts/dev.py
+```
+
+**macOS one-click:** double-click `start_northstar.command`. It creates the
+virtualenv, installs dependencies, picks a free port, and opens your browser.
+
+Create your account, add the ETFs you actually own, and press **Sync**.
+
+## Configuration
+
+Copy `.env.example` to `.env`. Everything runs with defaults; the notable knobs:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SESSION_SECRET` | *(dev value)* | Cookie signing key — set a long random string in production |
+| `ALLOW_REGISTRATION` | `true` | Set `false` after signup to lock a public deployment to existing accounts |
+| `COOKIE_SECURE` | `false` | Set `true` when served over HTTPS |
+| `TWELVE_DATA_API_KEY` | *(unset)* | Enables real-time quotes; otherwise delayed Yahoo/Stooq data is used |
+| `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` | *(unset)* | Switch persistence from local SQLite to Turso cloud |
+| `NORTHSTAR_DB_PATH` | `data/northstar.db` | Override the local SQLite location |
+
+The full list, including market-cache tuning, is documented inline in
+[`.env.example`](.env.example).
 
 ## Architecture
 
 ```text
-Browser
-  ├─ Modern Ledger UI
-  ├─ localStorage cache (fast/offline fallback)
-  └─ same-origin JSON API
-       ├─ Flask authentication + sessions
-       ├─ Portfolio state API
-       ├─ Normalised trade storage
-       ├─ European ETF market proxy (34 exchanges, EUR-normalised)
-       │    ├─ Twelve Data  — optional; exchange entitlement/delay varies
-       │    ├─ Stooq        — delayed fallback
-       │    └─ Yahoo Finance — delayed fallback
-       └─ SQLite locally / Turso in production
+Browser (static/)
+  ├─ index.html          markup only
+  ├─ css/app.css         neo-brutalist design system
+  ├─ js/app.js           portfolio engine, charts, sync
+  └─ localStorage        fast/offline working copy
+        │ same-origin JSON API
+        ▼
+Flask (northstar/)
+  ├─ auth.py             sessions (HttpOnly cookie, SHA-256 token at rest)
+  ├─ state_api.py        portfolio state + normalised trades table
+  ├─ market_api.py       authenticated quote proxy
+  └─ market_provider.py  Twelve Data → Yahoo Finance → Stooq, EUR-normalised
+        ▼
+SQLite (local) / Turso libSQL (production)
 ```
 
-The database is the canonical source after login. The browser keeps a local cache so the UI remains fast and can recover from a temporary connection failure.
+The database is the canonical source after login; the browser cache only makes
+the UI fast and resilient to brief connection loss. Details in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-## Quick start on macOS
-
-### Easiest
-
-1. Download or clone this repository.
-2. Double-click `start_northstar.command`.
-3. Northstar creates `.venv`, installs dependencies, selects a free port, and opens the browser.
-4. Create your account.
-
-Local data is stored in:
+## Project structure
 
 ```text
-data/northstar.db
+├── app.py / wsgi.py        entrypoints (dev / gunicorn)
+├── northstar/              Flask application package
+├── static/                 SPA: index.html + css/ + js/ + issuer logos
+├── data/                   etf_catalog.json (your .db lives here, git-ignored)
+├── scripts/                dev server, database init
+├── tests/                  pytest suite (auth, security, market regressions)
+├── docs/                   architecture, deployment, screenshots
+└── .github/workflows/      CI — Ruff lint/format + pytest on 3.11 & 3.12
 ```
-
-### Python 3.14 and Turso dependencies
-
-The default local install intentionally uses standard SQLite and contains no Rust/native libSQL dependency. This makes `start_northstar.command` compatible with Python 3.14.
-
-Turso support is an optional production dependency:
-
-```bash
-pip install -r requirements-turso.txt
-```
-
-The included Docker and Render configurations use Python 3.13 and install this Turso dependency automatically. If you are running Python 3.14 locally, keep `TURSO_DATABASE_URL` unset and use the built-in SQLite database at `data/northstar.db`.
-
-If an older Northstar download left a partially installed `.venv`, the updated launcher detects and repairs it. To reset it manually:
-
-```bash
-rm -rf .venv
-./start_northstar.command
-```
-
-### Terminal
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-python3 scripts/dev.py
-```
-
-## Where transactions are stored
-
-Each trade is stored twice for resilience:
-
-1. **Canonical database record** in the `trades` table, scoped to the logged-in user.
-2. **Browser cache** in `localStorage` under `northstarPortfolio`.
-
-The database also stores portfolio settings, baseline positions, reviews, snapshots, and goal assumptions. Market quotes are refreshed from the provider and cached in the portfolio state for display continuity.
-
-The browser cache is not a substitute for backups. Use **Settings → Export JSON** periodically.
-
-## Configure Turso
-
-Northstar uses normal SQLite locally and the same SQL model with Turso Cloud in production.
-
-### 1. Install and authenticate the Turso CLI
-
-Follow the official Turso installation instructions, then:
-
-```bash
-turso auth login
-```
-
-### 2. Create a database
-
-```bash
-turso db create northstar
-turso db show --url northstar
-turso db tokens create northstar
-```
-
-### 3. Add environment variables
-
-```env
-TURSO_DATABASE_URL=libsql://your-database-your-org.turso.io
-TURSO_AUTH_TOKEN=your-token
-SESSION_SECRET=a-long-random-value
-COOKIE_SECURE=true
-ALLOW_REGISTRATION=true
-```
-
-Generate a session secret:
-
-```bash
-python -c "import secrets; print(secrets.token_urlsafe(48))"
-```
-
-After creating your own account on a public deployment, set:
-
-```env
-ALLOW_REGISTRATION=false
-```
-
-This turns the deployment into a private single-user app while preserving login.
-
-## Deploy to Render
-
-Render is the simplest deployment target for the included Flask server and quote proxy.
-
-1. Push the repository to GitHub.
-2. Create a Turso database and token using the steps above.
-3. In Render, choose **New → Blueprint** and select the repository.
-4. Render reads `render.yaml` automatically.
-5. Add `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` when prompted.
-6. Deploy.
-7. Create your account, then set `ALLOW_REGISTRATION=false` and redeploy.
-
-The health endpoint is:
-
-```text
-/health
-```
-
-## Deploy with Docker
-
-```bash
-docker build -t northstar .
-docker run --rm -p 8000:8000 \
-  -e SESSION_SECRET="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')" \
-  -e TURSO_DATABASE_URL="libsql://..." \
-  -e TURSO_AUTH_TOKEN="..." \
-  -e COOKIE_SECURE=false \
-  northstar
-```
-
-Open `http://localhost:8000`.
-
-## Authentication and security
-
-- Passwords are hashed with Python `hashlib.scrypt` and a random salt.
-- Session cookies are HttpOnly, SameSite=Lax, and Secure in HTTPS production.
-- Only a SHA-256 hash of each session token is stored in the database.
-- Write API requests reject cross-origin origins.
-- Security headers include CSP, frame denial, MIME sniffing protection, and a restricted Permissions Policy.
-- Authentication attempts are rate-limited in memory.
-- Obsolete market-provider API keys are stripped before portfolio state is persisted.
-
-For a public multi-user product, add email verification, password reset, persistent distributed rate limiting, audit logs, and an external security review.
-
-## Database schema
-
-Core tables:
-
-- `users`
-- `auth_sessions`
-- `portfolio_state`
-- `trades`
-
-The schema is documented in `schema.sql`. SQLAlchemy creates missing tables automatically at startup. Local SQLite support is part of Python; the optional Turso SQLAlchemy dialect is installed only in production through `requirements-turso.txt`.
 
 ## Development
 
 ```bash
-pip install -r requirements-dev.txt
-pytest
-ruff check northstar tests scripts
+make lint    # ruff check
+make test    # pytest
+ruff format .
 ```
 
-### Project layout
+CI enforces `ruff check`, `ruff format --check`, and the test suite on every
+push and pull request. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-```text
-northstar-portfolio/
-├── northstar/
-│   ├── __init__.py        # app factory, security headers
-│   ├── auth.py            # login, register, logout, sessions
-│   ├── db.py              # SQLite + Turso database layer
-│   ├── etf_catalog.py     # local ETF catalog (search by name/ISIN/ticker)
-│   ├── market_api.py      # /api/market — quote + history endpoints
-│   ├── market_provider.py # Twelve Data / Stooq / Yahoo fallback chain
-│   ├── models.py
-│   ├── security.py        # hashing, token generation
-│   └── state_api.py       # portfolio state + trades persistence
-├── static/index.html      # single-page app (all UI + JS)
-├── scripts/
-├── tests/
-├── docs/
-├── schema.sql
-├── .env.example           # local dev environment template
-├── requirements.txt
-├── requirements-turso.txt
-├── Dockerfile
-├── render.yaml
-└── start_northstar.command
-```
+## Deployment
 
-## Data migration from an older browser-only Northstar build
+The recommended production setup is **Render + Turso** — a one-blueprint deploy
+using the included [`render.yaml`](render.yaml), or the [`Dockerfile`](Dockerfile)
+on any container host. Step-by-step instructions, Turso setup, and reverse-proxy
+notes live in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
-After your first login, Northstar checks the existing `northstarPortfolio` browser cache. If the database is empty and the local cache contains holdings or transactions, it imports that state automatically.
+## Security
 
-For moving between domains or browsers:
-
-1. Export JSON from the old installation.
-2. Open the new installation and sign in.
-3. Import the JSON from Settings.
-4. Wait for the header status to show **Saved to Turso** or **Saved to SQLite**.
-
-## Market data note
-
-Northstar fetches quotes only for the exact exchange listings in your portfolio and normalises them to EUR. No API key is required — Stooq and Yahoo Finance are used as delayed fallbacks. Twelve Data is optional; exchange entitlement and delay depend on the account plan. Xetra free-tier access should not be presented as real-time.
-
-Supported exchanges include Xetra, Frankfurt, London, Euronext (Paris, Amsterdam, Brussels, Lisbon), Borsa Italiana, Nasdaq Nordic, and more — see `northstar/market_provider.py` for the full list. Quotes can be delayed and may differ from broker-indicative or ask prices.
-
-## Contributing
-
-Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md) before opening a pull request or reporting a vulnerability.
+Vulnerability reports are welcome — see [SECURITY.md](SECURITY.md).
+Never commit `.env`, API keys, Turso tokens, or `data/*.db`.
 
 ## License
 
-MIT © 2026 Shubham Kumar
+[MIT](LICENSE) © Shubham Kumar

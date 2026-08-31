@@ -22,7 +22,9 @@ class AuthSession(Base):
     __tablename__ = "auth_sessions"
 
     token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
-    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
     created_at: Mapped[str] = mapped_column(String(40), nullable=False)
     expires_at: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
     user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -31,7 +33,9 @@ class AuthSession(Base):
 class PortfolioState(Base):
     __tablename__ = "portfolio_state"
 
-    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
     state_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     updated_at: Mapped[str] = mapped_column(String(40), nullable=False)
@@ -43,7 +47,9 @@ class Trade(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     trade_id: Mapped[str] = mapped_column(String(80), nullable=False)
-    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
     asset: Mapped[str] = mapped_column(String(40), nullable=False)
     type: Mapped[str] = mapped_column(String(8), nullable=False)
     trade_date: Mapped[str] = mapped_column(String(10), nullable=False)

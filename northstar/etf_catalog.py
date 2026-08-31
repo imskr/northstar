@@ -59,7 +59,9 @@ def resolve_symbol(value: str) -> dict:
         if item["symbol"] == symbol:
             return dict(item)
     if not is_supported_symbol(symbol):
-        raise ValueError("Enter a symbol with a supported European exchange suffix, for example VWCE.DE or VUSA.L.")
+        raise ValueError(
+            "Enter a symbol with a supported European exchange suffix, for example VWCE.DE or VUSA.L."
+        )
     suffix, exchange = exchange_for_symbol(symbol)
     ticker = symbol.rsplit(suffix, 1)[0] if suffix else symbol.split(".")[0]
     return {
@@ -91,7 +93,14 @@ def search_catalog(query: str, exchange_suffix: str = "", limit: int = 16) -> li
     for item in _catalog():
         if exchange_suffix and item["exchangeSuffix"] != exchange_suffix:
             continue
-        fields = [item["symbol"], item["ticker"], item["name"], item["isin"], item["issuer"], item["assetClass"]]
+        fields = [
+            item["symbol"],
+            item["ticker"],
+            item["name"],
+            item["isin"],
+            item["issuer"],
+            item["assetClass"],
+        ]
         folded = [str(value or "").casefold() for value in fields]
         normalized = [re.sub(r"[^a-z0-9]", "", value) for value in folded]
         score = None

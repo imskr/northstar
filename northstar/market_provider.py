@@ -72,15 +72,40 @@ TWELVE_EXCHANGES = {
 }
 
 SUFFIX_CURRENCIES = {
-    ".DE": "EUR", ".F": "EUR", ".BE": "EUR", ".DU": "EUR",
-    ".HA": "EUR", ".HM": "EUR", ".MU": "EUR", ".SG": "EUR",
-    ".TG": "EUR", ".LU": "EUR", ".PA": "EUR", ".AS": "EUR",
-    ".BR": "EUR", ".LS": "EUR", ".MI": "EUR", ".MC": "EUR",
-    ".VI": "EUR", ".IR": "EUR", ".L": "GBP", ".SW": "CHF",
-    ".ST": "SEK", ".CO": "DKK", ".HE": "EUR", ".OL": "NOK",
-    ".IC": "ISK", ".WA": "PLN", ".PR": "CZK", ".BD": "HUF",
-    ".AT": "EUR", ".IS": "TRY", ".TL": "EUR", ".RG": "EUR",
-    ".VS": "EUR", ".RO": "RON",
+    ".DE": "EUR",
+    ".F": "EUR",
+    ".BE": "EUR",
+    ".DU": "EUR",
+    ".HA": "EUR",
+    ".HM": "EUR",
+    ".MU": "EUR",
+    ".SG": "EUR",
+    ".TG": "EUR",
+    ".LU": "EUR",
+    ".PA": "EUR",
+    ".AS": "EUR",
+    ".BR": "EUR",
+    ".LS": "EUR",
+    ".MI": "EUR",
+    ".MC": "EUR",
+    ".VI": "EUR",
+    ".IR": "EUR",
+    ".L": "GBP",
+    ".SW": "CHF",
+    ".ST": "SEK",
+    ".CO": "DKK",
+    ".HE": "EUR",
+    ".OL": "NOK",
+    ".IC": "ISK",
+    ".WA": "PLN",
+    ".PR": "CZK",
+    ".BD": "HUF",
+    ".AT": "EUR",
+    ".IS": "TRY",
+    ".TL": "EUR",
+    ".RG": "EUR",
+    ".VS": "EUR",
+    ".RO": "RON",
 }
 
 EUROPEAN_SUFFIXES = tuple(sorted(EUROPEAN_EXCHANGES, key=len, reverse=True))
@@ -249,7 +274,7 @@ def _yf_history(symbol: str, period: str) -> dict:
 
     rows = [
         {"date": str(dt.date()), "close": float(close)}
-        for dt, close in zip(hist.index, hist["Close"])
+        for dt, close in zip(hist.index, hist["Close"], strict=False)
         if float(close) > 0
     ]
     if len(rows) < 2:
@@ -284,15 +309,27 @@ def _yf_history(symbol: str, period: str) -> dict:
     }
 
 
-def _fetch_json(url: str, *, timeout: float = 10.0, fresh: bool = False, extra_headers: dict | None = None) -> dict:
+def _fetch_json(
+    url: str, *, timeout: float = 10.0, fresh: bool = False, extra_headers: dict | None = None
+) -> dict:
     try:
-        return json.loads(_request(url, accept="application/json,text/plain,*/*", timeout=timeout, fresh=fresh, extra_headers=extra_headers).decode("utf-8"))
+        return json.loads(
+            _request(
+                url,
+                accept="application/json,text/plain,*/*",
+                timeout=timeout,
+                fresh=fresh,
+                extra_headers=extra_headers,
+            ).decode("utf-8")
+        )
     except json.JSONDecodeError as exc:
         raise RuntimeError("Market service returned invalid JSON.") from exc
 
 
 def _fetch_text(url: str, *, timeout: float = 10.0, fresh: bool = False) -> str:
-    return _request(url, accept="text/csv,text/plain,*/*", timeout=timeout, fresh=fresh).decode("utf-8", "replace")
+    return _request(url, accept="text/csv,text/plain,*/*", timeout=timeout, fresh=fresh).decode(
+        "utf-8", "replace"
+    )
 
 
 def _cached(
@@ -334,7 +371,9 @@ def _twelve_error(data: dict) -> None:
     lowered = message.lower()
     if code == 429 or "credit" in lowered or "rate limit" in lowered:
         raise MarketRateLimited()
-    if any(word in lowered for word in ("subscription", "plan", "not available", "not authorized", "permission")):
+    if any(
+        word in lowered for word in ("subscription", "plan", "not available", "not authorized", "permission")
+    ):
         raise MarketEntitlementError(message)
     raise RuntimeError(message)
 
@@ -367,7 +406,9 @@ def _twelve_error_message(data: dict) -> str | None:
     return str(data.get("message") or "Twelve Data rejected the request.")
 
 
-def _twelve_batch(endpoint: str, symbols: list[str], *, fresh: bool = False, **params) -> tuple[dict[str, dict], dict[str, str]]:
+def _twelve_batch(
+    endpoint: str, symbols: list[str], *, fresh: bool = False, **params
+) -> tuple[dict[str, dict], dict[str, str]]:
     if not symbols:
         return {}, {}
     identifiers = {_twelve_identifier(symbol): symbol for symbol in symbols}
@@ -398,7 +439,13 @@ def _twelve_batch(endpoint: str, symbols: list[str], *, fresh: bool = False, **p
             errors.update(sub_errors)
         return results, errors
     # A single-symbol response is the payload itself; batch responses are keyed by SYMBOL:MIC.
-    if len(symbols) == 1 and (_twelve_error_message(raw) is not None or endpoint == "quote" and ("close" in raw or "price" in raw) or endpoint == "time_series" and ("values" in raw or "meta" in raw)):
+    if len(symbols) == 1 and (
+        _twelve_error_message(raw) is not None
+        or endpoint == "quote"
+        and ("close" in raw or "price" in raw)
+        or endpoint == "time_series"
+        and ("values" in raw or "meta" in raw)
+    ):
         raw = {next(iter(identifiers)): raw}
     if not isinstance(raw, dict):
         return {}, {symbol: "Twelve Data returned an unexpected batch response." for symbol in symbols}
@@ -501,7 +548,10 @@ def _twelve_quote(symbol: str) -> dict:
         lowered = message.lower()
         if "credit" in lowered or "rate limit" in lowered:
             raise MarketRateLimited()
-        if any(word in lowered for word in ("subscription", "plan", "not available", "not authorized", "permission", "access")):
+        if any(
+            word in lowered
+            for word in ("subscription", "plan", "not available", "not authorized", "permission", "access")
+        ):
             raise MarketEntitlementError(message)
         raise RuntimeError(message)
     return _twelve_quote_payload(symbol, payloads[symbol])
@@ -522,7 +572,10 @@ def _twelve_history(symbol: str, range_: str) -> dict:
         lowered = message.lower()
         if "credit" in lowered or "rate limit" in lowered:
             raise MarketRateLimited()
-        if any(word in lowered for word in ("subscription", "plan", "not available", "not authorized", "permission", "access")):
+        if any(
+            word in lowered
+            for word in ("subscription", "plan", "not available", "not authorized", "permission", "access")
+        ):
             raise MarketEntitlementError(message)
         raise RuntimeError(message)
     return _twelve_history_payload(symbol, payloads[symbol])
@@ -557,7 +610,9 @@ def _twelve_history_payloads(symbols: list[str], range_: str) -> tuple[dict[str,
             errors[symbol] = str(exc)
     return parsed, errors
 
+
 # ── Stooq ─────────────────────────────────────────────────────────────────────
+
 
 def _stooq_symbol(symbol: str) -> str:
     return symbol.lower()
@@ -603,7 +658,9 @@ def _stooq_history(symbol: str, range_: str) -> dict:
     days = RANGE_DAYS.get(range_, 400)
     end = date.today()
     start = end - timedelta(days=days)
-    params = urlencode({"s": _stooq_symbol(symbol), "d1": start.strftime("%Y%m%d"), "d2": end.strftime("%Y%m%d"), "i": "d"})
+    params = urlencode(
+        {"s": _stooq_symbol(symbol), "d1": start.strftime("%Y%m%d"), "d2": end.strftime("%Y%m%d"), "i": "d"}
+    )
     text = _fetch_text(f"https://stooq.com/q/d/l/?{params}")
     rows = []
     for row in csv.DictReader(io.StringIO(text)):
@@ -663,7 +720,10 @@ def _load_quote(symbol: str, *, prefer_realtime: bool = True) -> dict:
         errors.append(f"Yahoo (yfinance): {exc}")
 
     # Stooq as last resort.
-    for loader_name, loader in (("Stooq", lambda: _stooq_quote(symbol)), ("Stooq-history", lambda: _stooq_history(symbol, "5d"))):
+    for loader_name, loader in (
+        ("Stooq", lambda: _stooq_quote(symbol)),
+        ("Stooq-history", lambda: _stooq_history(symbol, "5d")),
+    ):
         try:
             payload = loader()
             payload["provider_errors"] = errors.copy()
@@ -672,6 +732,7 @@ def _load_quote(symbol: str, *, prefer_realtime: bool = True) -> dict:
             errors.append(f"{loader_name}: {exc}")
 
     raise RuntimeError(" | ".join(errors) or f"No quote provider returned {symbol}.")
+
 
 def _load_history(symbol: str, range_: str, *, prefer_realtime: bool = True) -> dict:
     """Return a history payload for *symbol* covering *range_*.
@@ -705,6 +766,7 @@ def _load_history(symbol: str, range_: str, *, prefer_realtime: bool = True) -> 
 
     raise RuntimeError(" | ".join(errors) or f"No history provider returned {symbol}.")
 
+
 def _currency_parts(raw_currency: str | None) -> tuple[str, float]:
     raw = str(raw_currency or "EUR").strip()
     if raw in {"GBp", "GBX", "GBx", "GBPENCE"}:
@@ -722,7 +784,9 @@ def _fx_to_eur(currency: str) -> tuple[float, str]:
     def loader() -> dict:
         if real_time_configured():
             key = os.getenv("TWELVE_DATA_API_KEY", "").strip()
-            data = _fetch_json(f"https://api.twelvedata.com/exchange_rate?{urlencode({'symbol': currency + '/EUR', 'apikey': key})}")
+            data = _fetch_json(
+                f"https://api.twelvedata.com/exchange_rate?{urlencode({'symbol': currency + '/EUR', 'apikey': key})}"
+            )
             _twelve_error(data)
             rate = _finite(data.get("rate"))
             if rate and rate > 0:
@@ -753,7 +817,11 @@ def _normalize_payload(symbol: str, payload: dict, cache_status: str) -> dict:
     else:
         price_eur = native_price * multiplier
     previous_native = _finite(payload.get("previous"))
-    previous_eur = previous_native * multiplier if previous_native is not None else (history[-2]["close"] if len(history) > 1 else None)
+    previous_eur = (
+        previous_native * multiplier
+        if previous_native is not None
+        else (history[-2]["close"] if len(history) > 1 else None)
+    )
     timestamp = int(payload.get("timestamp") or datetime.now(UTC).timestamp())
     suffix, exchange_name = exchange_for_symbol(symbol)
     provider = str(payload.get("provider") or "Market provider")
@@ -811,7 +879,11 @@ def normalize(
     ttl = HISTORY_CACHE_SECONDS if include_history else QUOTE_CACHE_SECONDS
     payload, cache_status = _cached(
         (kind, symbol, range_, "live" if prefer_realtime else "fallback"),
-        lambda: _load_history(symbol, range_, prefer_realtime=prefer_realtime) if include_history else _load_quote(symbol, prefer_realtime=prefer_realtime),
+        lambda: (
+            _load_history(symbol, range_, prefer_realtime=prefer_realtime)
+            if include_history
+            else _load_quote(symbol, prefer_realtime=prefer_realtime)
+        ),
         ttl=ttl,
         force=force and not include_history,
         allow_stale=not force or include_history,
@@ -854,19 +926,26 @@ def twelve_diagnostics(symbol: str) -> dict:
     configured = real_time_configured()
     result = {"configured": configured, "symbol": symbol}
     if not configured:
-        result.update({"ok": False, "message": "TWELVE_DATA_API_KEY is not visible to the running Render service. Save the variable and redeploy."})
+        result.update(
+            {
+                "ok": False,
+                "message": "TWELVE_DATA_API_KEY is not visible to the running Render service. Save the variable and redeploy.",
+            }
+        )
         return result
     try:
         payload = _twelve_quote(symbol)
     except (MarketRateLimited, MarketEntitlementError, RuntimeError) as exc:
         result.update({"ok": False, "identifier": _twelve_identifier(symbol), "message": str(exc)})
         return result
-    result.update({
-        "ok": True,
-        "identifier": _twelve_identifier(symbol),
-        "provider": payload.get("provider"),
-        "price": payload.get("price"),
-        "currency": payload.get("currency"),
-        "marketState": payload.get("market_state"),
-    })
+    result.update(
+        {
+            "ok": True,
+            "identifier": _twelve_identifier(symbol),
+            "provider": payload.get("provider"),
+            "price": payload.get("price"),
+            "currency": payload.get("currency"),
+            "marketState": payload.get("market_state"),
+        }
+    )
     return result

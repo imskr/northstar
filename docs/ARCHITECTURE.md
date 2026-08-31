@@ -2,25 +2,50 @@
 
 ## Frontend
 
-`static/index.html` is a dependency-free single-page application. It keeps a browser cache for fast rendering, but synchronises every material change to the authenticated server API.
+The UI is a dependency-free single-page application served from `static/`:
+
+| File | Responsibility |
+|---|---|
+| `index.html` | Markup only — pages, forms, modals |
+| `css/app.css` | The complete neo-brutalist design system (tokens, components, responsive rules) |
+| `js/app.js` | Portfolio engine: state, XIRR/Monte Carlo math, canvas charts, API sync |
+| `password_reset.js` | Self-contained reset-flow widget |
+
+The browser keeps a `localStorage` working copy for fast rendering, but every
+material change synchronises to the authenticated server API — after login the
+database is the canonical source.
 
 ## Authentication
 
-The server creates an opaque random session token. The browser receives the raw token through an HttpOnly cookie. The database stores only its SHA-256 hash and expiration date.
+The server issues an opaque random session token delivered via an HttpOnly
+cookie. The database stores only its SHA-256 hash and expiry, so a database
+leak does not expose usable sessions.
 
 ## Persistence
 
-- Portfolio state is stored as JSON without the transaction array.
+- Portfolio state is stored as JSON **without** the transaction array.
 - Transactions are validated and stored in a normalised `trades` table.
-- A load request combines both sources into the original frontend state format.
+- A load request merges both back into the frontend state format.
 
-This arrangement preserves the existing portfolio engine while making transactions independently queryable and auditable.
+This keeps the existing portfolio engine intact while making trades
+independently queryable and auditable.
 
 ## Market data
 
-`northstar/market_provider.py` retrieves ETF quote snapshots from the Deutsche Börse path and historical benchmark data separately. `/api/market` is authenticated and same-origin, which keeps provider details outside the browser and prevents public endpoint abuse.
+`northstar/market_provider.py` resolves quotes and history in strict priority
+order:
+
+1. **Twelve Data** — real-time, only when an API key is configured.
+2. **Yahoo Finance** (via yfinance) — delayed, free, the default.
+3. **Stooq** — delayed, best-effort last resort.
+
+All prices are normalised to EUR. `/api/market` is authenticated and
+same-origin, keeping provider details out of the browser and preventing
+public-endpoint abuse.
 
 ## Local versus production database
 
-- Without `TURSO_DATABASE_URL`, SQLAlchemy uses `sqlite:///data/northstar.db`.
-- With `TURSO_DATABASE_URL`, SQLAlchemy uses the libSQL dialect and the Turso auth token.
+- Without `TURSO_DATABASE_URL`: SQLAlchemy uses `sqlite:///data/northstar.db`.
+- With it: SQLAlchemy uses the libSQL dialect plus the Turso auth token.
+
+The schema (`schema.sql`) is identical in both modes.

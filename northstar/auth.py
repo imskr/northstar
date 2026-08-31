@@ -188,9 +188,7 @@ def login():
     raw_token, hashed_token, expires_at = new_session_token()
     session_statement = _session_statement(row["id"], hashed_token, expires_at)
     get_database().execute(session_statement.sql, session_statement.params)
-    response = jsonify(
-        {"user": {"id": row["id"], "email": row["email"], "name": row["display_name"]}}
-    )
+    response = jsonify({"user": {"id": row["id"], "email": row["email"], "name": row["display_name"]}})
     _set_session_cookie(response, raw_token)
     return response
 

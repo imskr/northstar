@@ -16,3 +16,7 @@ venv/
 env/
 
 .env
+# Local data and OS cruft
+data/*.db
+data/*.db-journal
+.DS_Store

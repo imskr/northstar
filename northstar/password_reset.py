@@ -146,8 +146,13 @@ def reset_password():
 
     get_database().transaction(
         [
-            Statement("UPDATE users SET password_hash = ? WHERE id = ?", (hash_password(password), reset["user_id"])),
-            Statement("UPDATE password_reset_tokens SET used_at = ? WHERE token_hash = ?", (now, reset["token_hash"])),
+            Statement(
+                "UPDATE users SET password_hash = ? WHERE id = ?", (hash_password(password), reset["user_id"])
+            ),
+            Statement(
+                "UPDATE password_reset_tokens SET used_at = ? WHERE token_hash = ?",
+                (now, reset["token_hash"]),
+            ),
             Statement("DELETE FROM auth_sessions WHERE user_id = ?", (reset["user_id"],)),
         ]
     )
