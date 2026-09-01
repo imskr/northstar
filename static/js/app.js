@@ -252,6 +252,89 @@ function portfolioXirr(){
  if(state.market.lastUpdated){const tv=totalValue();if(tv>0)flows.push({date:new Date().toISOString().slice(0,10),amount:tv})}
  return xirr(flows);
 }
+// ── Calendar-year XIRR ──────────────────────────────────────────────────────
+// Isolates a single calendar year's money-weighted return by treating the
+// portfolio's value at the end of the PRIOR year as a synthetic starting cash
+// flow (as if it were freshly invested on Jan 1), then the year's real
+// transactions, then that year's Dec 31 value as the ending flow. Each
+// year-end value does double duty: it's one year's ending flow and the next
+// year's starting flow, which is what correctly isolates each year rather
+// than mixing in performance from before it.
+function sharesAsOfDate(id,dateStr){
+ const a=state.assets[id];if(!a)return 0;
+ let shares=0;
+ const baseShares=Number(a.baselineShares)||0;
+ if(baseShares>0&&(!a.baselineDate||a.baselineDate<=dateStr))shares=baseShares;
+ // Undated baseline holdings are treated as already held by any tracked calendar
+ // boundary — reasonable since baseline holdings by definition predate tracking,
+ // and this only needs "were these shares present by this date", not their exact
+ // acquisition date (unlike since-inception XIRR, where the entry date matters).
+ const txs=state.transactions.filter(t=>t.asset===id&&t.date<=dateStr).sort((x,y)=>new Date(x.date)-new Date(y.date)||Number(x.createdAt||0)-Number(y.createdAt||0));
+ for(const t of txs){
+  const q=Number(t.shares)||0;
+  if(t.type==='buy')shares+=q;else shares-=Math.min(q,shares);
+ }
+ return Math.max(0,shares);
+}
+function priceAsOfDate(id,dateStr){
+ const hist=state.assets[id]?.history||[];
+ let best=null;
+ for(const row of hist){if(row.date<=dateStr&&(!best||row.date>best.date))best=row}
+ return best?Number(best.close):null;
+}
+function portfolioValueAsOfDate(dateStr){
+ let total=0;
+ for(const id of Object.keys(state.assets)){
+  const shares=sharesAsOfDate(id,dateStr);
+  if(shares<=1e-10)continue;
+  const price=priceAsOfDate(id,dateStr);
+  if(price==null)return null;
+  total+=shares*price;
+ }
+ return total;
+}
+function trackedCalendarYears(){
+ const dates=state.transactions.map(t=>t.date);
+ for(const a of Object.values(state.assets))if(a.baselineDate)dates.push(a.baselineDate);
+ if(!dates.length)return [];
+ const minYear=Math.min(...dates.map(d=>Number(String(d).slice(0,4)))),maxYear=new Date().getFullYear();
+ const years=[];
+ for(let y=minYear;y<=maxYear;y++)years.push(y);
+ return years;
+}
+function calendarYearCashFlows(year){
+ const yearStart=`${year}-01-01`,yearEnd=`${year}-12-31`,today=new Date().toISOString().slice(0,10),isCurrentYear=String(year)===today.slice(0,4);
+ const startValue=portfolioValueAsOfDate(`${year-1}-12-31`);
+ if(startValue==null)return{flows:null,reason:'Not enough synced history at the start of this year'};
+ const flows=[];
+ if(startValue>0)flows.push({date:yearStart,amount:-startValue});
+ for(const a of Object.values(state.assets)){
+  const baseShares=Number(a.baselineShares)||0;
+  if(baseShares>0&&a.baselineDate&&a.baselineDate>=yearStart&&a.baselineDate<=yearEnd)flows.push({date:a.baselineDate,amount:-(baseShares*(Number(a.baselineAvgPrice)||0))});
+ }
+ for(const t of state.transactions){
+  if(t.date<yearStart||t.date>yearEnd)continue;
+  const shares=Number(t.shares)||0,price=Number(t.price)||0,fee=Number(t.fee)||0;
+  if(t.type==='buy')flows.push({date:t.date,amount:-(shares*price+fee)});
+  else flows.push({date:t.date,amount:shares*price-fee});
+ }
+ let endValue=null;
+ if(isCurrentYear){
+  if(state.market.lastUpdated){endValue=totalValue();if(endValue>0)flows.push({date:today,amount:endValue})}
+ }else{
+  endValue=portfolioValueAsOfDate(yearEnd);
+  if(endValue==null)return{flows:null,reason:'Not enough synced history at the end of this year'};
+  if(endValue>0)flows.push({date:yearEnd,amount:endValue});
+ }
+ return{flows,startValue,endValue,isCurrentYear};
+}
+function calendarXirr(year){
+ const r=calendarYearCashFlows(year);
+ if(!r.flows)return{xirr:null,reason:r.reason,isCurrentYear:r.isCurrentYear};
+ const x=xirr(r.flows);
+ const reason=x==null?(r.isCurrentYear&&!state.market.lastUpdated?'Sync prices to calculate':'Not enough activity yet'):null;
+ return{xirr:x,reason,isCurrentYear:r.isCurrentYear,startValue:r.startValue,endValue:r.endValue};
+}
 function alignSeries(seriesMap){const ids=Object.keys(seriesMap);if(!ids.length||ids.some(k=>!seriesMap[k]?.length))return [];let common=new Set(seriesMap[ids[0]].map(x=>x.date));for(const id of ids.slice(1))common=new Set([...common].filter(d=>seriesMap[id].some(x=>x.date===d)));return [...common].sort().map(date=>({date,...Object.fromEntries(ids.map(id=>[id,seriesMap[id].find(x=>x.date===date).close]))}))}
 function returnsFromPrices(rows,keys,weights){const out=[];for(let i=1;i<rows.length;i++){let r=0,valid=true;for(const k of keys){const a=rows[i-1][k],b=rows[i][k];if(!a||!b){valid=false;break}r+=weights[k]*(b/a-1)}if(valid)out.push({date:rows[i].date,r})}return out}
 function mean(a){return a.length?a.reduce((s,x)=>s+x,0)/a.length:0}function stdev(a){if(a.length<2)return null;const m=mean(a);return Math.sqrt(a.reduce((s,x)=>s+(x-m)**2,0)/(a.length-1))}function covariance(a,b){const n=Math.min(a.length,b.length);if(n<2)return null;const aa=a.slice(-n),bb=b.slice(-n),ma=mean(aa),mb=mean(bb);return aa.reduce((s,x,i)=>s+(x-ma)*(bb[i]-mb),0)/(n-1)}function correlation(a,b){const c=covariance(a,b),sa=stdev(a),sb=stdev(b);return c!=null&&sa&&sb?c/(sa*sb):null}
@@ -313,6 +396,39 @@ function alignPerformanceSeries(series){
  });
 }
 function benchmarkSeries(key){const h=state.benchmarks[key]?.history||[];if(h.length<2)return [];const first=h[0].close;return h.map(x=>({date:x.date,value:x.close/first*100}))}
+function whatIfBacktest(benchmarkKey){
+ const raw=benchmarkSeries(benchmarkKey);
+ if(raw.length<2)return null;
+ const series=[...raw].sort((a,b)=>a.date.localeCompare(b.date));
+ const first=series[0].date,last=series.at(-1).date;
+ function valueOnOrAfter(dateStr){
+  if(dateStr<first||dateStr>last)return null;
+  for(const p of series)if(p.date>=dateStr)return p.value;
+  return null;
+ }
+ const buys=[];
+ for(const t of state.transactions){
+  if(t.type!=='buy')continue;
+  const amount=(Number(t.shares)||0)*(Number(t.price)||0)+(Number(t.fee)||0);
+  if(amount>0)buys.push({date:t.date,amount});
+ }
+ for(const a of Object.values(state.assets)){
+  const baseShares=Number(a.baselineShares)||0;
+  if(baseShares>0&&a.baselineDate){const amount=baseShares*(Number(a.baselineAvgPrice)||0);if(amount>0)buys.push({date:a.baselineDate,amount})}
+ }
+ if(!buys.length)return null;
+ buys.sort((x,y)=>x.date.localeCompare(y.date));
+ let units=0,contributed=0,skipped=0;
+ for(const b of buys){
+  const price=valueOnOrAfter(b.date);
+  if(price==null||price<=0){skipped+=b.amount;continue}
+  units+=b.amount/price;
+  contributed+=b.amount;
+ }
+ if(contributed<=0)return null;
+ const hypotheticalValue=units*series.at(-1).value;
+ return{contributed,skipped,hypotheticalValue,totalReturn:(hypotheticalValue/contributed-1)*100,coverage:contributed/(contributed+skipped)*100};
+}
 function sortinoRatio(arr,rf){if(!arr||arr.length<20)return null;const rfD=Math.pow(1+(rf||0)/100,1/252)-1,excess=arr.map(r=>r-rfD);const downsideSq=excess.map(r=>Math.min(0,r)**2);if(!downsideSq.some(v=>v>0))return null;const dd=Math.sqrt(mean(downsideSq))*Math.sqrt(252);return dd>0?mean(excess)*252/dd:null}
 function filterSeriesMonths(series,months){if(!series||!series.length)return[];const cut=new Date();cut.setMonth(cut.getMonth()-months);const cd=cut.toISOString().slice(0,10);const f=series.filter(p=>p.date>=cd);if(f.length<5)return[];const base=f[0].value;return f.map(p=>({date:p.date,value:p.value/base*100}))}
 function dcaSimFromSeries(series,monthly){if(!series||series.length<5||monthly<=0)return null;let units=0,contributions=0,lastMonth=null;for(const p of series){const m=p.date.slice(0,7);if(m!==lastMonth&&Number.isFinite(p.value)&&p.value>0){units+=monthly/p.value;contributions+=monthly;lastMonth=m}}if(!contributions)return null;const fv=series.at(-1)?.value;if(!Number.isFinite(fv)||fv<=0)return null;return{endValue:units*fv,contributions,totalReturn:(units*fv/contributions-1)*100}}
@@ -564,7 +680,34 @@ function healthScore(){let s=0;s+=state.market.lastUpdated?25:0;s+=Math.round(dr
 function seriesSpanMonths(series){if(!series||series.length<5)return 0;const first=new Date(series[0].date+'T00:00:00'),last=new Date(series.at(-1).date+'T00:00:00');return (last-first)/(1000*60*60*24*30.44)}
 function renderDcaBacktest(){const el=$('#dcaBacktestBody');if(!el)return;const monthly=monthlyTotal(),ps=modelSeries(),qs=benchmarkSeries('qqq'),ss=benchmarkSeries('spy');if(ps.length<5&&qs.length<5){el.innerHTML='<tr><td colspan="6"><div class="empty">Sync 1+ year of history to run the DCA backtest.</div></td></tr>';return}const available=Math.max(seriesSpanMonths(ps),seriesSpanMonths(qs),seriesSpanMonths(ss));const periods=[{label:'1 year',months:12},{label:'2 years',months:24},{label:'3 years',months:36}].filter(p=>available>=p.months*0.9);if(!periods.length){el.innerHTML='<tr><td colspan="6"><div class="empty">Sync 1+ year of history to run the DCA backtest.</div></td></tr>';return}el.innerHTML=periods.map(({label,months})=>{const p=dcaSimFromSeries(filterSeriesMonths(ps,months),monthly),q=dcaSimFromSeries(filterSeriesMonths(qs,months),monthly),s=dcaSimFromSeries(filterSeriesMonths(ss,months),monthly);if(!p&&!q)return'';const vq=p&&q?p.totalReturn-q.totalReturn:null,vs=p&&s?p.totalReturn-s.totalReturn:null;return`<tr><td><strong>${label}</strong></td><td>${p?fmt(p.endValue,0):'--'}</td><td>${p?fmt(p.contributions,0):'--'}</td><td class="${p?p.totalReturn>=0?'positive':'negative':''}">${p?`${p.totalReturn>=0?'+':''}${pct(p.totalReturn)}`:'--'}</td><td class="${vq==null?'':vq>=0?'positive':'negative'}">${vq==null?'--':`${vq>=0?'+':''}${pct(vq)} pp`}</td><td class="${vs==null?'':vs>=0?'positive':'negative'}">${vs==null?'--':`${vs>=0?'+':''}${pct(vs)} pp`}</td></tr>`;}).join('')}
 function renderGoalSensitivity(){const el=$('#goalSensitivityGrid');if(!el)return;const tv=totalValue(),goal=state.profile.goal,rate=state.profile.expectedReturn,current=monthlyTotal();if(!Object.keys(state.assets).length){el.innerHTML='<div class="empty">Add ETFs to see goal sensitivity.</div>';return}const amounts=[...new Set([200,300,400,500,600,700,800,900,1000,1200,1500,Math.round(current)])].filter(m=>m>0).sort((a,b)=>a-b);el.innerHTML=amounts.map(m=>{const months=monthsToGoal(goal,tv,m,rate),label=dateAfterMonths(months),isCurrent=Math.abs(m-current)<1,barW=Number.isFinite(months)?Math.max(4,Math.min(100,Math.round((1-months/Math.max(months,120))*100))):4;return`<div class="benchmark-row" style="${isCurrent?'font-weight:700;color:var(--ink)':''}"><span>${isCurrent?`\u25b8 ${fmt(m,0)}/mo`:`${fmt(m,0)}/mo`}</span><div class="bar"><i style="width:${barW}%;background:${isCurrent?'#141414':'#BDB8A8'}"></i></div><strong>${label}</strong></div>`;}).join('')}
-function renderReview(){const items=reviewItems(),score=healthScore();$('#scoreValue').textContent=score;$('#scoreRing').style.background=`conic-gradient(${score>=80?'var(--green)':score>=60?'var(--amber)':'var(--red)'} ${score*3.6}deg,#E4E0D2 0)`;$('#reviewHeadline').textContent=score>=85?'Portfolio system is healthy':score>=65?'Solid foundation—keep refining':'Complete the operating system';$('#reviewCopy').textContent=score>=85?'Your data, allocation, contribution habit, and goal plan are working together.':score>=65?'The strategy is coherent, but one or two setup or consistency gaps remain.':'Connect live data, enter exact holdings, and build a consistent monthly record.';$('#reviewList').innerHTML=items.map(x=>`<div class="review-item"><h4 class="${x.status==='good'?'positive':x.status==='warn'?'amber':'negative'}">${x.title}</h4><p>${x.body}</p></div>`).join('');const validReviews=state.reviews.filter(r=>r.value>0||r.score>0);$('#reviewLedger').innerHTML=validReviews.length?[...validReviews].reverse().slice(0,8).map(r=>`<div class="review-item"><h4>${dateFmt(r.date)}</h4><p>Health ${r.score}/100 · value ${fmt(r.value,0)} · drift ${r.drift}/100</p></div>`).join(''):'<div class="empty">No saved reviews yet. Sync prices first, then run a review.</div>';renderDcaBacktest();renderGoalSensitivity()}
+function renderReview(){const items=reviewItems(),score=healthScore();$('#scoreValue').textContent=score;$('#scoreRing').style.background=`conic-gradient(${score>=80?'var(--green)':score>=60?'var(--amber)':'var(--red)'} ${score*3.6}deg,#E4E0D2 0)`;$('#reviewHeadline').textContent=score>=85?'Portfolio system is healthy':score>=65?'Solid foundation—keep refining':'Complete the operating system';$('#reviewCopy').textContent=score>=85?'Your data, allocation, contribution habit, and goal plan are working together.':score>=65?'The strategy is coherent, but one or two setup or consistency gaps remain.':'Connect live data, enter exact holdings, and build a consistent monthly record.';$('#reviewList').innerHTML=items.map(x=>`<div class="review-item"><h4 class="${x.status==='good'?'positive':x.status==='warn'?'amber':'negative'}">${x.title}</h4><p>${x.body}</p></div>`).join('');const validReviews=state.reviews.filter(r=>r.value>0||r.score>0);$('#reviewLedger').innerHTML=validReviews.length?[...validReviews].reverse().slice(0,8).map(r=>`<div class="review-item"><h4>${dateFmt(r.date)}</h4><p>Health ${r.score}/100 · value ${fmt(r.value,0)} · drift ${r.drift}/100</p></div>`).join(''):'<div class="empty">No saved reviews yet. Sync prices first, then run a review.</div>';renderDcaBacktest();renderGoalSensitivity();renderCalendarXirr();renderWhatIfBacktest()}
+function renderCalendarXirr(){
+ const el=$('#calendarXirrGrid');if(!el)return;
+ const years=trackedCalendarYears();
+ if(!years.length){el.innerHTML='<div class="empty">Add ETFs and trades to see calendar-year XIRR.</div>';return}
+ const results=years.map(year=>({year,...calendarXirr(year)}));
+ el.innerHTML=results.map(r=>{
+  const value=r.xirr==null?'—':`${r.xirr>=0?'+':''}${pct(r.xirr*100,2)}`;
+  const cls=r.xirr==null?'':r.xirr>=0?'positive':'negative';
+  const caption=r.xirr==null?(r.reason||'Not enough data'):(r.isCurrentYear?'1 Jan – today (year to date)':'1 Jan – 31 Dec');
+  return `<article class="card kpi"><label>${r.year}</label><strong class="${cls}">${value}</strong><small>${esc(caption)}</small></article>`;
+ }).join('');
+}
+function renderWhatIfBacktest(){
+ const el=$('#whatIfGrid');if(!el)return;
+ const invested=grossInvested(),live=!!state.market.lastUpdated,tv=live?totalValue():null;
+ const actualReturn=invested>0&&tv!=null?(tv/invested-1)*100:null;
+ const rows=[{label:'Your portfolio',invested:invested>0?invested:null,value:tv,ret:actualReturn,coverage:null}];
+ for(const [key,label] of[['qqq','Nasdaq-100'],['spy','S&P 500']]){
+  const r=whatIfBacktest(key);
+  rows.push({label,invested:r?r.contributed:null,value:r?r.hypotheticalValue:null,ret:r?r.totalReturn:null,coverage:r?r.coverage:null});
+ }
+ if(rows.every(r=>r.value==null)){el.innerHTML='<div class="empty">Add trades and sync price history to run this comparison.</div>';return}
+ el.innerHTML=rows.map(r=>{
+  const note=r.coverage!=null&&r.coverage<99.5?`<p class="chart-sub" style="margin-top:10px">Covers ${r.coverage.toFixed(0)}% of your contributions — the rest predate this benchmark's synced history.</p>`:'';
+  return `<article class="card pad"><div class="eyebrow">${esc(r.label)}</div><div class="results" style="grid-template-columns:1fr"><div class="result"><span>Invested</span><strong>${r.invested!=null?fmt(r.invested,0):'—'}</strong></div><div class="result"><span>Value today</span><strong>${r.value!=null?fmt(r.value,0):'—'}</strong></div><div class="result"><span>Total return</span><strong class="${r.ret==null?'':r.ret>=0?'positive':'negative'}">${r.ret==null?'—':`${r.ret>=0?'+':''}${pct(r.ret,2)}`}</strong></div></div>${note}</article>`;
+ }).join('');
+}
 function renderAll(){normalizeDynamicState();renderAssetManager();renderOverview();renderPositions();renderLab();renderReview()}
 function switchPage(id){$$('.page').forEach(x=>x.classList.toggle('active',x.id===id));$$('[data-page]').forEach(x=>x.classList.toggle('active',x.dataset.page===id));window.scrollTo({top:0,behavior:'smooth'});if(id==='lab')setTimeout(renderLab,30);if(id==='overview')setTimeout(drawMainChart,30);if(id==='review')setTimeout(renderKpis,30)}
 function updateProviderHelp(){const el=$('#providerHelp');if(!el)return;el.innerHTML='Prices are fetched from <strong>Yahoo Finance</strong> automatically — no setup needed. Click <em>Test connection</em> to verify, then <em>Sync</em> to update your portfolio.';}

@@ -179,8 +179,13 @@
  <div class="section"><div><h2>Risk decomposition</h2><p>Derived from synced daily prices. It is descriptive, not a forecast.</p></div></div>
  <div class="grid four"><article class="card kpi"><label>Annualised return</label><strong id="annReturnReview">—</strong><small>Model period</small></article><article class="card kpi"><label>Sharpe ratio</label><strong id="sharpeReview">—</strong><small>Excess return per unit of risk</small></article><article class="card kpi"><label>Correlation to S&amp;P 500</label><strong id="corrReview">—</strong><small>SPY proxy</small></article><article class="card kpi"><label>Sortino ratio</label><strong id="worstDayReview">—</strong><small>Downside risk-adjusted</small></article></div>
 
+<div class="section"><div><h2>Calendar XIRR</h2><p>Money-weighted return isolated to each calendar year — last year's 31 Dec value becomes this year's starting cash flow. New years appear automatically as you add transactions.</p></div></div>
+<div class="calendar-xirr-grid" id="calendarXirrGrid"></div>
+
 <div class="section"><div><h2>DCA backtest</h2><p>What your monthly contributions would have compounded to in your ETFs vs the benchmark indices.</p></div></div>
 <article class="card table-wrap"><table><thead><tr><th>Period</th><th>Your portfolio</th><th>Contributed</th><th>Total return</th><th>vs Nasdaq-100</th><th>vs S&amp;P 500</th></tr></thead><tbody id="dcaBacktestBody"><tr><td colspan="6"><div class="empty">Sync 1+ year of price history to run the DCA backtest.</div></td></tr></tbody></table></article>
+<div class="section"><div><h2>What if you'd bought the index instead?</h2><p>Takes your actual contribution dates and amounts and replays them into each benchmark instead — not a fixed monthly amount like the DCA backtest above, your real, irregular buy history.</p></div></div>
+<div class="grid three" id="whatIfGrid"></div>
 <div class="section"><div><h2>Goal sensitivity</h2><p>How your €100k ETA shifts as monthly investment changes. The highest-leverage adjustment you can make.</p></div></div>
 <article class="card pad"><div class="benchmark-grid" id="goalSensitivityGrid"><div class="empty">Add ETFs to see goal sensitivity.</div></div></article>
 </section>
