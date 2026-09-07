@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from flask import Blueprint, jsonify, request
 
 from .auth import login_required
-from .etf_catalog import catalog_stats, list_catalog, resolve_symbol, search_catalog
+from .catalog import catalog_stats, list_catalog, resolve_symbol, search_catalog
 from .market_provider import (
     EUROPEAN_EXCHANGES,
     clear_request_td_key,
@@ -78,7 +78,7 @@ def _market_handler():
         )
     )
     if not symbols:
-        return jsonify({"error": "Add at least one ETF symbol."}), 400
+        return jsonify({"error": "Add at least one symbol."}), 400
     if len(symbols) > 24:
         return jsonify({"error": "A maximum of 24 selected symbols can be synced at once."}), 400
     invalid = [symbol for symbol in symbols if not is_supported_symbol(symbol)]
@@ -98,7 +98,7 @@ def _market_handler():
     configured = real_time_configured()
 
     # One exchange-qualified Twelve Data batch request is faster and more reliable than
-    # issuing one request per ETF from a shared Render egress IP.
+    # issuing one request per symbol from a shared Render egress IP.
     if configured:
         try:
             if include_history:

@@ -13,7 +13,7 @@ from .db import Statement, get_database, using_turso
 from .security import iso, utcnow
 
 bp = Blueprint("state_api", __name__, url_prefix="/api")
-# Dynamic ETF asset IDs look like "etf_vwce_de" (prefix + lowercased symbol with underscores).
+# Dynamic asset IDs (covering both ETFs and individual stocks) look like "etf_vwce_de" (prefix + lowercased symbol with underscores).
 # Legacy IDs ("bcfp", "sec0", "emsm") are also lowercase alphanumeric.
 # We validate the general shape rather than an exhaustive allow-list.
 _ASSET_RE = re.compile(r"^[a-z0-9][a-z0-9_]{0,39}$")

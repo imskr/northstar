@@ -6,7 +6,7 @@
 <meta name="northstar-build" content="25.0-batched-live-sync-clean-chart">
 <meta name="theme-color" content="#F5F1E8">
 <meta name="description" content="Northstar — a private, live portfolio operating system for Shubham's ETF plan.">
-<title>Northstar — European ETF Portfolio</title>
+<title>Northstar — European Portfolio Tracker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Archivo+Black&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -37,7 +37,7 @@
 </div>
 <div class="shell">
 <header class="topbar">
- <div class="brand"><div class="brandmark">N</div><div><div class="brandname">Northstar</div><div class="brandsub">Private portfolio ledger · European ETF pricing</div></div></div>
+ <div class="brand"><div class="brandmark">N</div><div><div class="brandname">Northstar</div><div class="brandsub">Private portfolio ledger · European market pricing</div></div></div>
  <nav class="nav"><button class="active" data-page="overview">Overview</button><button data-page="positions">Positions</button><button data-page="lab">Goal Lab</button><button data-page="review">Review</button></nav>
  <div class="top-actions"><div class="live-pill"><i class="dot" id="liveDot"></i><span id="liveText">Market data offline</span></div><span class="sync-chip" id="cloudSyncStatus">Opening ledger…</span><div class="account-chip"><span>Signed in</span><strong id="accountName">—</strong></div><button class="btn hide-mobile" id="syncBtn">↻ Sync</button><button class="icon-btn" id="settingsBtn" aria-label="Settings">⚙</button><button class="icon-btn logout-btn" id="logoutBtn" aria-label="Log out" title="Log out">↪</button></div>
 </header>
@@ -46,7 +46,7 @@
  <div class="grid hero-grid">
   <article class="card hero">
    <div class="eyebrow">Your investment command centre</div><h1>The long game, <span>measured.</span></h1>
-   <p>Track the European-listed ETFs you choose, understand allocation drift, and plan the next contribution from one private ledger.</p>
+   <p>Track the European-listed instruments you choose, understand allocation drift, and plan the next contribution from one private ledger.</p>
    <div class="hero-bottom"><div class="goal-ring" id="goalRing"><div><strong id="goalPct">0%</strong><span>of €100k</span></div></div>
     <div class="hero-metrics">
      <div class="metric"><label>Portfolio value</label><strong id="totalValue">—</strong><small id="valueSub">Connect market data</small></div>
@@ -90,7 +90,7 @@
   <div class="etf-library-hero">
    <div class="etf-library-copy">
     <div class="eyebrow">Portfolio builder</div>
-    <h2 id="etfLibraryTitle">Choose the ETFs you actually own.</h2>
+    <h2 id="etfLibraryTitle">Choose the instruments you actually own.</h2>
     <p>Search by fund name, ticker, or ISIN, then select the exact European listing used by your broker. Northstar converts supported non-euro listings into EUR so every position remains comparable.</p>
     <div class="etf-library-facts" aria-label="ETF coverage">
      <span><b>34</b> supported venues</span>
@@ -98,30 +98,30 @@
      <span><b>0</b> prefilled holdings</span>
     </div>
    </div>
-   <div class="etf-library-count"><span>Selected portfolio</span><strong id="portfolioAssetCount">0 ETFs</strong><small id="portfolioAllocationState">Add your first fund below</small></div>
+   <div class="etf-library-count"><span>Selected portfolio</span><strong id="portfolioAssetCount">0 holdings</strong><small id="portfolioAllocationState">Add your first fund below</small></div>
   </div>
   <div class="etf-control-surface">
    <div class="etf-search-grid">
-    <div class="field etf-search-field"><label for="etfSearchInput">Find an ETF</label><input id="etfSearchInput" autocomplete="off" placeholder="MSCI World, SXR8, IE00…"></div>
+    <div class="field etf-search-field"><label for="etfSearchInput">Find an instrument</label><input id="etfSearchInput" autocomplete="off" placeholder="MSCI World, SXR8, IE00…"></div>
     <div class="field"><label for="etfExchangeFilter">Listing venue</label><select id="etfExchangeFilter"><option value="">All European exchanges</option></select></div>
-    <button class="btn primary etf-search-button" id="etfSearchBtn" type="button">Search ETFs</button>
+    <button class="btn primary etf-search-button" id="etfSearchBtn" type="button">Search</button>
    </div>
    <div class="manual-symbol"><div class="field"><label for="manualEtfSymbol">Know the exact market symbol?</label><input id="manualEtfSymbol" autocomplete="off" placeholder="For example VWCE.DE or VUSA.L"></div><button class="btn" id="manualEtfAddBtn" type="button">Add symbol</button></div>
   </div>
-  <div class="etf-results" id="etfSearchResults"><div class="empty-portfolio"><span class="empty-icon">⌕</span><strong>Search the Northstar ETF catalog</strong>Results will show the exact symbol, venue, and native trading currency.</div></div>
+  <div class="etf-results" id="etfSearchResults"><div class="empty-portfolio"><span class="empty-icon">⌕</span><strong>Search the Northstar instrument catalog</strong>Results will show the exact symbol, venue, and native trading currency.</div></div>
   <div class="selected-etfs">
    <div class="selected-etfs-head"><div><div class="eyebrow">Investment strategy</div><strong>Current allocation and target plan</strong><span id="targetSummary"> · targets automatically total 100%</span></div><button class="btn subtle" id="normalizeTargetsBtn" type="button">Balance to 100%</button></div>
    <div class="selected-etf-list" id="selectedEtfList"></div>
   </div>
  </article>
-<div class="market-banner"><div><strong id="marketStatus">Market data not connected</strong><span id="marketDetail">Choose an ETF from the local catalog, then sync only your selected exchange listings.</span></div><div class="market-time" id="marketUpdated">No live sync yet</div></div>
+<div class="market-banner"><div><strong id="marketStatus">Market data not connected</strong><span id="marketDetail">Choose an instrument from the local catalog, then sync only your selected exchange listings.</span></div><div class="market-time" id="marketUpdated">No live sync yet</div></div>
  <article class="card pad"><div class="chart-head"><div><div class="chart-title">Current position baseline</div><div class="chart-sub">Use fractional shares and the exact average entry from your broker statement.</div></div></div><div class="position-grid" id="positionGrid"></div><div style="margin-top:16px"><button class="btn primary" id="savePositionsBtn" style="width:100%">Save positions</button></div></article>
  <div class="section trade-section-heading"><div><div class="eyebrow">Transaction ledger</div><h2>Add a transaction</h2><p>Record the exact execution details from any broker. Northstar updates weighted average cost for buys and calculates realised profit or loss for sells.</p></div></div>
 <article class="card trade-studio">
  <form class="trade-entry" id="tradeForm">
   <div class="trade-entry-head"><div><strong>Execution details</strong><span>The last synced price is prefilled as a convenience. Replace it with your actual execution price.</span></div><div class="trade-entry-badge">EUR ledger</div></div>
   <div class="trade-grid-v19">
-   <div class="field"><label for="txAsset">ETF listing</label><select id="txAsset"><option value="">Add an ETF first</option></select></div>
+   <div class="field"><label for="txAsset">Holding</label><select id="txAsset"><option value="">Add a holding first</option></select></div>
    <div class="field"><label for="txType">Transaction</label><select id="txType"><option value="buy">Buy</option><option value="sell">Sell</option></select></div>
    <div class="field"><label for="txDate">Trade date</label><input id="txDate" type="date" required></div>
    <div class="field"><label for="txAmount">Amount invested (€)</label><input id="txAmount" type="number" min="0.01" step="0.01" placeholder="e.g. 600.00"><small class="field-help">Enter amount — shares auto-calculated from execution price. Ideal for savings plan entries.</small></div><div class="field"><label for="txShares">Shares</label><input id="txShares" type="number" min="0.000001" step="0.000001" required placeholder="1.234567"><small class="field-help">Fractional shares are supported.</small></div>
@@ -139,9 +139,9 @@
  </div><div class="trade-guidance-note"><strong>Price sync is separate</strong>Sync updates valuation prices only. It never overwrites a transaction you recorded.</div></aside>
 </article>
  <div class="grid two" style="margin-top:18px"><article class="card pad"><div class="chart-title" id="nextOrderTitle">Next order</div><p class="chart-sub">Uses new money to reduce drift. It never recommends selling by default.</p><div class="action-list" id="nextOrder"></div><button class="btn" id="fillTradeBtn" style="width:100%;margin-top:12px">Fill largest suggested buy</button></article>
- <article class="card pad"><div class="chart-title">Live data engine</div><p class="chart-sub" style="line-height:1.65">Northstar searches its own ETF catalog. When you click Sync prices, it requests quotes only for the exact exchange listings in your portfolio and normalises them to EUR.</p><div class="action-list"><div class="action-row"><span>Provider</span><strong id="providerLabel">Not connected</strong></div><div class="action-row"><span>Price sync</span><strong id="refreshCadence">On demand</strong></div><div class="action-row"><span>History refresh</span><strong>Daily</strong></div></div></article></div>
+ <article class="card pad"><div class="chart-title">Live data engine</div><p class="chart-sub" style="line-height:1.65">Northstar searches its own instrument catalog. When you click Sync prices, it requests quotes only for the exact exchange listings in your portfolio and normalises them to EUR.</p><div class="action-list"><div class="action-row"><span>Provider</span><strong id="providerLabel">Not connected</strong></div><div class="action-row"><span>Price sync</span><strong id="refreshCadence">On demand</strong></div><div class="action-row"><span>History refresh</span><strong>Daily</strong></div></div></article></div>
  <div class="section"><div><h2>Trade history</h2><p>Delete any incorrect trade and all holdings/P&amp;L are recalculated from the beginning.</p></div></div>
- <article class="card table-wrap"><table><thead><tr><th>Date</th><th>Action</th><th>ETF</th><th>Shares</th><th>Price</th><th>Fees</th><th>Realised P&amp;L</th><th></th></tr></thead><tbody id="tradeBody"></tbody></table></article>
+ <article class="card table-wrap"><table><thead><tr><th>Date</th><th>Action</th><th>Holding</th><th>Shares</th><th>Price</th><th>Fees</th><th>Realised P&amp;L</th><th></th></tr></thead><tbody id="tradeBody"></tbody></table></article>
 </section>
 
 <section class="page" id="lab">
@@ -182,15 +182,15 @@
 <div class="section"><div><h2>Calendar XIRR</h2><p>Money-weighted return isolated to each calendar year — last year's 31 Dec value becomes this year's starting cash flow. New years appear automatically as you add transactions.</p></div></div>
 <div class="calendar-xirr-grid" id="calendarXirrGrid"></div>
 
-<div class="section"><div><h2>DCA backtest</h2><p>What your monthly contributions would have compounded to in your ETFs vs the benchmark indices.</p></div></div>
+<div class="section"><div><h2>DCA backtest</h2><p>What your monthly contributions would have compounded to in your holdings vs the benchmark indices.</p></div></div>
 <article class="card table-wrap"><table><thead><tr><th>Period</th><th>Your portfolio</th><th>Contributed</th><th>Total return</th><th>vs Nasdaq-100</th><th>vs S&amp;P 500</th></tr></thead><tbody id="dcaBacktestBody"><tr><td colspan="6"><div class="empty">Sync 1+ year of price history to run the DCA backtest.</div></td></tr></tbody></table></article>
 <div class="section"><div><h2>What if you'd bought the index instead?</h2><p>Takes your actual contribution dates and amounts and replays them into each benchmark instead — not a fixed monthly amount like the DCA backtest above, your real, irregular buy history.</p></div></div>
 <div class="grid three" id="whatIfGrid"></div>
 <div class="section"><div><h2>Goal sensitivity</h2><p>How your €100k ETA shifts as monthly investment changes. The highest-leverage adjustment you can make.</p></div></div>
-<article class="card pad"><div class="benchmark-grid" id="goalSensitivityGrid"><div class="empty">Add ETFs to see goal sensitivity.</div></div></article>
+<article class="card pad"><div class="benchmark-grid" id="goalSensitivityGrid"><div class="empty">Add holdings to see goal sensitivity.</div></div></article>
 </section>
 </main>
-<footer>European ETF quotes may be delayed and are normalised to EUR. Projections and risk metrics are mathematical illustrations, not promises or investment advice.</footer>
+<footer>European market quotes may be delayed and are normalised to EUR. Projections and risk metrics are mathematical illustrations, not promises or investment advice.</footer>
 </div>
 <div class="mobile-nav"><button class="active" data-page="overview">Overview</button><button data-page="positions">Positions</button><button data-page="lab">Goal Lab</button><button data-page="review">Review</button></div>
 
@@ -202,7 +202,7 @@
  <div style="height:1px;background:var(--line);margin:20px 0"></div><div class="eyebrow">Portfolio</div>
  <div class="modal-grid" style="margin-top:12px"><div class="field"><label>Name</label><input id="setName"></div><div class="field"><label>Goal (€)</label><input id="setGoal" type="number" min="1000" step="1000"></div><div class="field"><label>Expected return (%)</label><input id="setExpected" type="number" min="0" max="30" step="0.25"></div><div class="field"><label>Risk-free rate (%)</label><input id="setRf" type="number" min="0" max="15" step="0.25"></div></div>
  <div class="modal-grid" style="margin-top:12px"><div class="field"><label>Start date</label><input id="setStart" type="date"></div></div>
- <div class="api-note">ETF symbols and target weights are managed from <strong>Positions → ETF library</strong>.</div>
+ <div class="api-note">Symbols and target weights are managed from <strong>Positions → Instrument library</strong>.</div>
  <div class="modal-actions"><button class="btn danger" id="resetBtn">Reset app</button><button class="btn" id="exportBtn">Export backup</button><button class="btn" id="importBtn">Import</button><input id="importFile" type="file" accept="application/json" hidden><button class="btn primary" id="saveSettings">Save settings</button></div><div class="storage-note"><strong>Storage model:</strong> your authenticated portfolio state is saved to the configured SQLite or Turso database. Browser storage is only a local working copy used during hydration and recovery. Export a backup before destructive changes.</div>
 </div></div></div>
 <div class="toast" id="toast"></div>

@@ -1,5 +1,40 @@
 # Changelog
 
+## 2.1.1 - 2026-09-07
+
+- **Fixed:** the DCA backtest table showed identical numbers for the 1-year,
+  2-year, and 3-year rows on new portfolios. Root cause: it decided which
+  periods to show based on `max(portfolio history, Nasdaq-100 history, S&P 500
+  history)` — but the benchmarks sync independently and almost always have
+  years of history regardless of how new the portfolio is, so their long
+  history wrongly unlocked periods the portfolio itself didn't have data for.
+  Each period then asked for "the last N months of portfolio history," found
+  nothing older than the portfolio's real (short) span to trim, and all three
+  silently computed from the same window. Now gated strictly on the
+  portfolio's own history span — a new portfolio correctly shows "Sync 1+ year
+  of your own portfolio history" instead of fabricated-looking duplicate rows.
+
+## 2.1.0 - 2026-09-01
+
+- **Added:** the catalog now supports individual stocks alongside ETFs, not just
+  funds. Every catalog entry has a `kind` field (`etf` or `stock`); search results
+  and the "Add symbol" flow show which type you're looking at. Added 5 real,
+  verified stocks to seed the catalog (SAP, Siemens, Allianz, ASML, Nestlé),
+  spanning Xetra, Euronext Amsterdam, and SIX — each ISIN checked individually
+  rather than assumed from memory.
+- **Renamed:** `data/etf_catalog.json` → `data/catalog.json`, and
+  `northstar/etf_catalog.py` → `northstar/catalog.py`, since the catalog is no
+  longer ETF-only. All imports updated; verified no stale references remain
+  anywhere in the repo.
+- **Changed:** removed "ETF"-specific language from all user-facing text (page
+  title, empty states, buttons, toasts, error messages) in favour of "holding"
+  or "instrument" as appropriate, since the app now tracks both. Real fund names
+  that legitimately contain "ETF" (e.g. "MSCI Emerging Markets UCITS ETF Acc")
+  were left untouched — those are accurate legal names, not app copy. Internal
+  CSS classes and JS/HTML element IDs (e.g. `etfSearchBtn`) were intentionally
+  left as-is; renaming ~150 internal identifiers across two large files carried
+  real regression risk for zero user-visible benefit.
+
 ## 2.0.0 - 2026-08-31
 
 - **Changed:** complete visual redesign — a neo-brutalist system (cream canvas,

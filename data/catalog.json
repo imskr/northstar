@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "instruments": [
     {
       "symbol": "BCFP.DE",
@@ -11,7 +11,21 @@
       "nativeCurrency": "EUR",
       "issuer": "UBS",
       "assetClass": "Equity",
-      "logo": "/static/logos/ubs.svg"
+      "logo": "/static/logos/ubs.svg",
+      "kind": "etf"
+    },
+    {
+      "symbol": "6RJ0.F",
+      "ticker": "6RJ0",
+      "name": "Rocket Lab USA, Inc.",
+      "isin": "US7731211089",
+      "exchangeSuffix": ".F",
+      "exchange": "Frankfurt",
+      "nativeCurrency": "EUR",
+      "issuer": "Rocket Lab USA, Inc.",
+      "assetClass": "Equity",
+      "kind": "stock",
+      "logo": ""
     },
     {
       "symbol": "XAIX.DE",
@@ -23,7 +37,8 @@
       "nativeCurrency": "EUR",
       "issuer": "Xtrackers",
       "assetClass": "Equity",
-      "logo": "/static/logos/xtrackers.svg"
+      "logo": "/static/logos/xtrackers.svg",
+      "kind": "etf"
     },
     {
       "symbol": "SEC0.DE",
@@ -35,7 +50,8 @@
       "nativeCurrency": "EUR",
       "issuer": "iShares",
       "assetClass": "Equity",
-      "logo": "/static/logos/ishares.svg"
+      "logo": "/static/logos/ishares.svg",
+      "kind": "etf"
     },
     {
       "symbol": "EMSM.L",
@@ -47,7 +63,8 @@
       "nativeCurrency": "GBP",
       "issuer": "State Street SPDR",
       "assetClass": "Equity",
-      "logo": "/static/logos/spdr.svg"
+      "logo": "/static/logos/spdr.svg",
+      "kind": "etf"
     },
     {
       "symbol": "EMSM.DE",
@@ -59,7 +76,8 @@
       "nativeCurrency": "EUR",
       "issuer": "Invesco",
       "assetClass": "Equity",
-      "logo": "/static/logos/invesco.svg"
+      "logo": "/static/logos/invesco.svg",
+      "kind": "etf"
     },
     {
       "symbol": "VWCE.DE",
@@ -71,7 +89,8 @@
       "nativeCurrency": "EUR",
       "issuer": "Vanguard",
       "assetClass": "Equity",
-      "logo": "/static/logos/vanguard.svg"
+      "logo": "/static/logos/vanguard.svg",
+      "kind": "etf"
     },
     {
       "symbol": "VWRL.AS",
@@ -83,7 +102,8 @@
       "nativeCurrency": "EUR",
       "issuer": "Vanguard",
       "assetClass": "Equity",
-      "logo": "/static/logos/vanguard.svg"
+      "logo": "/static/logos/vanguard.svg",
+      "kind": "etf"
     },
     {
       "symbol": "VWRL.L",
@@ -95,7 +115,8 @@
       "nativeCurrency": "GBP",
       "issuer": "Vanguard",
       "assetClass": "Equity",
-      "logo": "/static/logos/vanguard.svg"
+      "logo": "/static/logos/vanguard.svg",
+      "kind": "etf"
     },
     {
       "symbol": "SXR8.DE",
@@ -107,7 +128,8 @@
       "nativeCurrency": "EUR",
       "issuer": "iShares",
       "assetClass": "Equity",
-      "logo": "/static/logos/ishares.svg"
+      "logo": "/static/logos/ishares.svg",
+      "kind": "etf"
     },
     {
       "symbol": "CSPX.L",
@@ -119,7 +141,8 @@
       "nativeCurrency": "USD",
       "issuer": "iShares",
       "assetClass": "Equity",
-      "logo": "/static/logos/ishares.svg"
+      "logo": "/static/logos/ishares.svg",
+      "kind": "etf"
     },
     {
       "symbol": "VUSA.L",
@@ -131,7 +154,8 @@
       "nativeCurrency": "GBP",
       "issuer": "Vanguard",
       "assetClass": "Equity",
-      "logo": "/static/logos/vanguard.svg"
+      "logo": "/static/logos/vanguard.svg",
+      "kind": "etf"
     },
     {
       "symbol": "VUAA.L",
@@ -143,7 +167,8 @@
       "nativeCurrency": "USD",
       "issuer": "Vanguard",
       "assetClass": "Equity",
-      "logo": "/static/logos/vanguard.svg"
+      "logo": "/static/logos/vanguard.svg",
+      "kind": "etf"
     },
     {
       "symbol": "EUNL.DE",
@@ -155,7 +180,8 @@
       "nativeCurrency": "EUR",
       "issuer": "iShares",
       "assetClass": "Equity",
-      "logo": "/static/logos/ishares.svg"
+      "logo": "/static/logos/ishares.svg",
+      "kind": "etf"
     },
     {
       "symbol": "IWDA.AS",
@@ -167,7 +193,8 @@
       "nativeCurrency": "EUR",
       "issuer": "iShares",
       "assetClass": "Equity",
-      "logo": "/static/logos/ishares.svg"
+      "logo": "/static/logos/ishares.svg",
+      "kind": "etf"
     },
     {
       "symbol": "SWDA.L",
@@ -179,7 +206,8 @@
       "nativeCurrency": "GBP",
       "issuer": "iShares",
       "assetClass": "Equity",
-      "logo": "/static/logos/ishares.svg"
+      "logo": "/static/logos/ishares.svg",
+      "kind": "etf"
     },
     {
       "symbol": "IS3N.DE",
@@ -191,7 +219,8 @@
       "nativeCurrency": "EUR",
       "issuer": "iShares",
       "assetClass": "Equity",
-      "logo": "/static/logos/ishares.svg"
+      "logo": "/static/logos/ishares.svg",
+      "kind": "etf"
     },
     {
       "symbol": "EMIM.AS",
@@ -203,7 +232,8 @@
       "nativeCurrency": "EUR",
       "issuer": "iShares",
       "assetClass": "Equity",
-      "logo": "/static/logos/ishares.svg"
+      "logo": "/static/logos/ishares.svg",
+      "kind": "etf"
     },
     {
       "symbol": "EIMI.L",
@@ -215,7 +245,8 @@
       "nativeCurrency": "GBP",
       "issuer": "iShares",
       "assetClass": "Equity",
-      "logo": "/static/logos/ishares.svg"
+      "logo": "/static/logos/ishares.svg",
+      "kind": "etf"
     },
     {
       "symbol": "IS3S.DE",
@@ -227,7 +258,8 @@
       "nativeCurrency": "EUR",
       "issuer": "iShares",
       "assetClass": "Equity",
-      "logo": "/static/logos/ishares.svg"
+      "logo": "/static/logos/ishares.svg",
+      "kind": "etf"
     },
     {
       "symbol": "IUSN.L",
@@ -239,7 +271,8 @@
       "nativeCurrency": "USD",
       "issuer": "iShares",
       "assetClass": "Equity",
-      "logo": "/static/logos/ishares.svg"
+      "logo": "/static/logos/ishares.svg",
+      "kind": "etf"
     },
     {
       "symbol": "SPYI.DE",
@@ -251,7 +284,8 @@
       "nativeCurrency": "EUR",
       "issuer": "State Street SPDR",
       "assetClass": "Equity",
-      "logo": "/static/logos/spdr.svg"
+      "logo": "/static/logos/spdr.svg",
+      "kind": "etf"
     },
     {
       "symbol": "IMIE.PA",
@@ -263,7 +297,8 @@
       "nativeCurrency": "EUR",
       "issuer": "State Street SPDR",
       "assetClass": "Equity",
-      "logo": "/static/logos/spdr.svg"
+      "logo": "/static/logos/spdr.svg",
+      "kind": "etf"
     },
     {
       "symbol": "SXRV.DE",
@@ -275,7 +310,8 @@
       "nativeCurrency": "EUR",
       "issuer": "iShares",
       "assetClass": "Equity",
-      "logo": "/static/logos/ishares.svg"
+      "logo": "/static/logos/ishares.svg",
+      "kind": "etf"
     },
     {
       "symbol": "CNDX.L",
@@ -287,7 +323,8 @@
       "nativeCurrency": "USD",
       "issuer": "iShares",
       "assetClass": "Equity",
-      "logo": "/static/logos/ishares.svg"
+      "logo": "/static/logos/ishares.svg",
+      "kind": "etf"
     },
     {
       "symbol": "QDVE.DE",
@@ -299,7 +336,8 @@
       "nativeCurrency": "EUR",
       "issuer": "iShares",
       "assetClass": "Equity",
-      "logo": "/static/logos/ishares.svg"
+      "logo": "/static/logos/ishares.svg",
+      "kind": "etf"
     },
     {
       "symbol": "IUIT.L",
@@ -311,7 +349,8 @@
       "nativeCurrency": "USD",
       "issuer": "iShares",
       "assetClass": "Equity",
-      "logo": "/static/logos/ishares.svg"
+      "logo": "/static/logos/ishares.svg",
+      "kind": "etf"
     },
     {
       "symbol": "EXS1.DE",
@@ -323,7 +362,8 @@
       "nativeCurrency": "EUR",
       "issuer": "iShares",
       "assetClass": "Equity",
-      "logo": "/static/logos/ishares.svg"
+      "logo": "/static/logos/ishares.svg",
+      "kind": "etf"
     },
     {
       "symbol": "EXSA.DE",
@@ -335,7 +375,8 @@
       "nativeCurrency": "EUR",
       "issuer": "iShares",
       "assetClass": "Equity",
-      "logo": "/static/logos/ishares.svg"
+      "logo": "/static/logos/ishares.svg",
+      "kind": "etf"
     },
     {
       "symbol": "EUNK.DE",
@@ -347,7 +388,8 @@
       "nativeCurrency": "EUR",
       "issuer": "iShares",
       "assetClass": "Equity",
-      "logo": "/static/logos/ishares.svg"
+      "logo": "/static/logos/ishares.svg",
+      "kind": "etf"
     },
     {
       "symbol": "AGGH.L",
@@ -359,7 +401,8 @@
       "nativeCurrency": "GBP",
       "issuer": "iShares",
       "assetClass": "Bond",
-      "logo": "/static/logos/ishares.svg"
+      "logo": "/static/logos/ishares.svg",
+      "kind": "etf"
     },
     {
       "symbol": "EUNA.DE",
@@ -371,7 +414,8 @@
       "nativeCurrency": "EUR",
       "issuer": "iShares",
       "assetClass": "Bond",
-      "logo": "/static/logos/ishares.svg"
+      "logo": "/static/logos/ishares.svg",
+      "kind": "etf"
     },
     {
       "symbol": "VAGF.DE",
@@ -383,7 +427,8 @@
       "nativeCurrency": "EUR",
       "issuer": "Vanguard",
       "assetClass": "Bond",
-      "logo": "/static/logos/vanguard.svg"
+      "logo": "/static/logos/vanguard.svg",
+      "kind": "etf"
     },
     {
       "symbol": "VAGP.L",
@@ -395,7 +440,8 @@
       "nativeCurrency": "GBP",
       "issuer": "Vanguard",
       "assetClass": "Bond",
-      "logo": "/static/logos/vanguard.svg"
+      "logo": "/static/logos/vanguard.svg",
+      "kind": "etf"
     },
     {
       "symbol": "ZPRV.DE",
@@ -407,7 +453,8 @@
       "nativeCurrency": "EUR",
       "issuer": "State Street SPDR",
       "assetClass": "Equity",
-      "logo": "/static/logos/spdr.svg"
+      "logo": "/static/logos/spdr.svg",
+      "kind": "etf"
     },
     {
       "symbol": "ZPRX.DE",
@@ -419,7 +466,8 @@
       "nativeCurrency": "EUR",
       "issuer": "State Street SPDR",
       "assetClass": "Equity",
-      "logo": "/static/logos/spdr.svg"
+      "logo": "/static/logos/spdr.svg",
+      "kind": "etf"
     },
     {
       "symbol": "INRG.L",
@@ -431,7 +479,8 @@
       "nativeCurrency": "GBP",
       "issuer": "iShares",
       "assetClass": "Equity",
-      "logo": "/static/logos/ishares.svg"
+      "logo": "/static/logos/ishares.svg",
+      "kind": "etf"
     },
     {
       "symbol": "IQQH.DE",
@@ -443,7 +492,8 @@
       "nativeCurrency": "EUR",
       "issuer": "iShares",
       "assetClass": "Equity",
-      "logo": "/static/logos/ishares.svg"
+      "logo": "/static/logos/ishares.svg",
+      "kind": "etf"
     },
     {
       "symbol": "WDIV.L",
@@ -455,7 +505,8 @@
       "nativeCurrency": "GBP",
       "issuer": "State Street SPDR",
       "assetClass": "Equity",
-      "logo": "/static/logos/spdr.svg"
+      "logo": "/static/logos/spdr.svg",
+      "kind": "etf"
     },
     {
       "symbol": "IPRP.L",
@@ -467,7 +518,8 @@
       "nativeCurrency": "GBP",
       "issuer": "iShares",
       "assetClass": "Real Estate",
-      "logo": "/static/logos/ishares.svg"
+      "logo": "/static/logos/ishares.svg",
+      "kind": "etf"
     },
     {
       "symbol": "LCUW.DE",
@@ -479,7 +531,8 @@
       "nativeCurrency": "EUR",
       "issuer": "Amundi",
       "assetClass": "Equity",
-      "logo": "/static/logos/amundi.svg"
+      "logo": "/static/logos/amundi.svg",
+      "kind": "etf"
     },
     {
       "symbol": "V80A.DE",
@@ -491,7 +544,8 @@
       "nativeCurrency": "EUR",
       "issuer": "Vanguard",
       "assetClass": "Multi-Asset",
-      "logo": "/static/logos/vanguard.svg"
+      "logo": "/static/logos/vanguard.svg",
+      "kind": "etf"
     },
     {
       "symbol": "V60A.DE",
@@ -503,7 +557,8 @@
       "nativeCurrency": "EUR",
       "issuer": "Vanguard",
       "assetClass": "Multi-Asset",
-      "logo": "/static/logos/vanguard.svg"
+      "logo": "/static/logos/vanguard.svg",
+      "kind": "etf"
     },
     {
       "symbol": "V40A.DE",
@@ -515,7 +570,8 @@
       "nativeCurrency": "EUR",
       "issuer": "Vanguard",
       "assetClass": "Multi-Asset",
-      "logo": "/static/logos/vanguard.svg"
+      "logo": "/static/logos/vanguard.svg",
+      "kind": "etf"
     },
     {
       "symbol": "V20A.DE",
@@ -527,7 +583,73 @@
       "nativeCurrency": "EUR",
       "issuer": "Vanguard",
       "assetClass": "Multi-Asset",
-      "logo": "/static/logos/vanguard.svg"
+      "logo": "/static/logos/vanguard.svg",
+      "kind": "etf"
+    },
+    {
+      "symbol": "SAP.DE",
+      "ticker": "SAP",
+      "name": "SAP SE",
+      "isin": "DE0007164600",
+      "exchangeSuffix": ".DE",
+      "exchange": "Xetra",
+      "nativeCurrency": "EUR",
+      "issuer": "SAP SE",
+      "assetClass": "Equity",
+      "kind": "stock",
+      "logo": ""
+    },
+    {
+      "symbol": "SIE.DE",
+      "ticker": "SIE",
+      "name": "Siemens AG",
+      "isin": "DE0007236101",
+      "exchangeSuffix": ".DE",
+      "exchange": "Xetra",
+      "nativeCurrency": "EUR",
+      "issuer": "Siemens AG",
+      "assetClass": "Equity",
+      "kind": "stock",
+      "logo": ""
+    },
+    {
+      "symbol": "ALV.DE",
+      "ticker": "ALV",
+      "name": "Allianz SE",
+      "isin": "DE0008404005",
+      "exchangeSuffix": ".DE",
+      "exchange": "Xetra",
+      "nativeCurrency": "EUR",
+      "issuer": "Allianz SE",
+      "assetClass": "Equity",
+      "kind": "stock",
+      "logo": ""
+    },
+    {
+      "symbol": "ASML.AS",
+      "ticker": "ASML",
+      "name": "ASML Holding N.V.",
+      "isin": "NL0010273215",
+      "exchangeSuffix": ".AS",
+      "exchange": "Euronext Amsterdam",
+      "nativeCurrency": "EUR",
+      "issuer": "ASML Holding N.V.",
+      "assetClass": "Equity",
+      "kind": "stock",
+      "logo": ""
+    },
+    {
+      "symbol": "NESN.SW",
+      "ticker": "NESN",
+      "name": "Nestlé SA",
+      "isin": "CH0038863350",
+      "exchangeSuffix": ".SW",
+      "exchange": "SIX Swiss Exchange",
+      "nativeCurrency": "CHF",
+      "issuer": "Nestlé SA",
+      "assetClass": "Equity",
+      "kind": "stock",
+      "logo": ""
     }
   ]
 }

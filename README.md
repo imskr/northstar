@@ -2,10 +2,10 @@
 
 # ⭐ Northstar
 
-**A private, self-hosted portfolio ledger for long-term European ETF investors.**
+**A private, self-hosted portfolio ledger for long-term European investors.**
 
 Track fractional positions, XIRR, allocation drift, and your path to €100k —
-across any ETF listed on 34 European exchanges, normalised to EUR. You can also add more ETFs to the catalog that are not listed.
+across any ETF or individual stock listed on 34 European exchanges, normalised to EUR. You can also add more instruments to the catalog that aren't listed.
 
 [![CI](https://img.shields.io/badge/CI-GitHub_Actions-141414?logo=githubactions&logoColor=FFD927)](.github/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-141414)](LICENSE)
@@ -23,7 +23,7 @@ across any ETF listed on 34 European exchanges, normalised to EUR. You can also 
 ## Why Northstar
 
 Most portfolio trackers are built for traders. Northstar is built for people who
-buy the same ETFs every month for a decade. It answers three questions, honestly:
+buy the same holdings every month for a decade. It answers three questions, honestly:
 
 1. **Where am I?** — live EUR value, realised + unrealised P&L, money-weighted
    XIRR from your exact cash flows.
@@ -36,7 +36,7 @@ buy the same ETFs every month for a decade. It answers three questions, honestly
 
 | | |
 |---|---|
-| 🗂️ **Open ETF catalog** | Search by name, ticker, or ISIN across 34 European venues, or add any exchange symbol directly |
+| 🗂️ **Open instrument catalog** | ETFs and individual stocks — search by name, ticker, or ISIN across 34 European venues, or add any exchange symbol directly |
 | 💶 **EUR normalisation** | GBP, CHF, SEK… listings converted so every position is comparable |
 | 📈 **Market data, no API key** | Delayed quotes via Yahoo Finance with a Stooq fallback; optional free [Twelve Data](https://twelvedata.com) key for real-time |
 | 🧮 **Honest accounting** | Fractional shares, weighted average cost, realised P&L (with optional broker override), per-fund and portfolio XIRR |
@@ -70,7 +70,7 @@ python scripts/dev.py
 **macOS one-click:** double-click `start_northstar.command`. It creates the
 virtualenv, installs dependencies, picks a free port, and opens your browser.
 
-Create your account, add the ETFs you actually own, and press **Sync**.
+Create your account, add the holdings you actually own, and press **Sync**.
 
 ## Configuration
 
@@ -117,7 +117,7 @@ the UI fast and resilient to brief connection loss. Details in
 ├── app.py / wsgi.py        entrypoints (dev / gunicorn)
 ├── northstar/              Flask application package
 ├── static/                 SPA: index.html + css/ + js/ + issuer logos
-├── data/                   etf_catalog.json (your .db lives here, git-ignored)
+├── data/                   catalog.json (your .db lives here, git-ignored)
 ├── scripts/                dev server, database init
 ├── tests/                  pytest suite (auth, security, market regressions)
 ├── docs/                   architecture, deployment, screenshots

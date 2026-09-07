@@ -8,7 +8,7 @@ from pathlib import Path
 from .market_provider import EUROPEAN_EXCHANGES, exchange_for_symbol, is_supported_symbol, normalize_symbol
 
 ROOT = Path(__file__).resolve().parents[1]
-CATALOG_PATH = ROOT / "data" / "etf_catalog.json"
+CATALOG_PATH = ROOT / "data" / "catalog.json"
 ISIN_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{10}$")
 
 
@@ -32,7 +32,8 @@ def _catalog() -> tuple[dict, ...]:
             "exchangeSuffix": str(raw.get("exchangeSuffix") or suffix),
             "nativeCurrency": str(raw.get("nativeCurrency") or ""),
             "issuer": str(raw.get("issuer") or ""),
-            "assetClass": str(raw.get("assetClass") or "ETF"),
+            "assetClass": str(raw.get("assetClass") or "Equity"),
+            "kind": str(raw.get("kind") or "etf").lower(),
             "logo": str(raw.get("logo") or ""),
         }
         seen.add(symbol)
@@ -67,13 +68,14 @@ def resolve_symbol(value: str) -> dict:
     return {
         "symbol": symbol,
         "ticker": ticker,
-        "name": f"{ticker} · custom European ETF listing",
+        "name": f"{ticker} · custom European listing",
         "isin": "",
         "exchange": exchange,
         "exchangeSuffix": suffix,
         "nativeCurrency": "",
         "issuer": "",
-        "assetClass": "ETF",
+        "assetClass": "Equity",
+        "kind": "unknown",
         "logo": "",
         "custom": True,
     }

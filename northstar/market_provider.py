@@ -422,7 +422,7 @@ def _twelve_batch(
     except (MarketRateLimited, RuntimeError):
         # Twelve Data's multi-symbol quote/time_series endpoints reject the ENTIRE
         # request with a single HTTP error when even one symbol isn't entitled on
-        # the caller's plan (common for European ETFs/Xetra on the free tier).
+        # the caller's plan (common for European listings on the free tier).
         # Re-issue one symbol at a time so symbols Twelve Data *can* serve still
         # get a real-time price instead of being dragged down with the bad one.
         if len(symbols) == 1:
