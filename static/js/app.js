@@ -93,7 +93,7 @@ function currentAllocationPercentage(id){
  const total=totalValue();
  return total>0&&state.assets[id]?replay(id).value/total*100:null;
 }
-function normalizeDynamicState(){const originalVersion=Number(state.version||0);state.version=15;state.profile=merge(DEFAULT.profile,state.profile||{});state.market=merge(DEFAULT.market,state.market||{});state.assets=state.assets&&typeof state.assets==='object'?state.assets:{};state.transactions=Array.isArray(state.transactions)?state.transactions:[];state.benchmarks=merge(DEFAULT.benchmarks,state.benchmarks||{});state.ui=merge(DEFAULT.ui,state.ui||{});const ids=Object.keys(state.assets);const untouchedLegacy=ids.length===3&&['bcfp','sec0','emsm'].every(id=>ids.includes(id))&&!state.transactions.length&&ids.every(id=>!Number(state.assets[id]?.baselineShares)&&!Number(state.assets[id]?.baselineRealizedPnl));for(const [id,a] of Object.entries(state.assets)){const legacy=LEGACY_META[id]||{};a.symbol=String(a.symbol||`${legacy.ticker||id}.DE`).trim().toUpperCase();a.ticker=a.ticker||legacy.ticker||a.symbol.split('.')[0];a.name=a.name||legacy.name||a.symbol;a.issuer=a.issuer||legacy.issuer||exchangeName(a.symbol);a.exchange=a.exchange||exchangeName(a.symbol);a.currency=a.currency||'EUR';a.target=Math.max(0,Number(a.target)||0);a.monthly=Math.max(0,Number(a.monthly)||0);a.baselineShares=Math.max(0,Number(a.baselineShares)||0);a.baselineAvgPrice=Math.max(0,Number(a.baselineAvgPrice)||0);a.baselineRealizedPnl=Number(a.baselineRealizedPnl)||0;a.currentPrice=Number(a.currentPrice)||null;a.quote=a.quote||null;a.history=Array.isArray(a.history)?a.history:[]}state.market.proxyUrl=state.market.proxyUrl||'/api/market';state.profile.monthlyInvestment=Math.max(0,Number(state.profile.monthlyInvestment)||Object.values(state.assets).reduce((n,a)=>n+(Number(a.monthly)||0),0)||600);if(Object.keys(state.assets).length){const total=Object.values(state.assets).reduce((n,a)=>n+(Number(a.target)||0),0);if(!Number.isFinite(total)||total<=0)normalizeTargets()}rebuildMeta()}
+function normalizeDynamicState(){const originalVersion=Number(state.version||0);state.version=15;state.profile=merge(DEFAULT.profile,state.profile||{});state.market=merge(DEFAULT.market,state.market||{});state.assets=state.assets&&typeof state.assets==='object'?state.assets:{};state.transactions=Array.isArray(state.transactions)?state.transactions:[];state.benchmarks=merge(DEFAULT.benchmarks,state.benchmarks||{});state.ui=merge(DEFAULT.ui,state.ui||{});const ids=Object.keys(state.assets);const untouchedLegacy=ids.length===3&&['bcfp','sec0','emsm'].every(id=>ids.includes(id))&&!state.transactions.length&&ids.every(id=>!Number(state.assets[id]?.baselineShares)&&!Number(state.assets[id]?.baselineRealizedPnl));for(const [id,a] of Object.entries(state.assets)){const legacy=LEGACY_META[id]||{};a.symbol=String(a.symbol||`${legacy.ticker||id}.DE`).trim().toUpperCase();a.ticker=a.ticker||legacy.ticker||a.symbol.split('.')[0];a.name=a.name||legacy.name||a.symbol;a.issuer=a.issuer||legacy.issuer||exchangeName(a.symbol);a.exchange=a.exchange||exchangeName(a.symbol);a.currency=a.currency||'EUR';a.target=Math.max(0,Number(a.target)||0);a.monthly=Math.max(0,Number(a.monthly)||0);a.baselineShares=Math.max(0,Number(a.baselineShares)||0);a.baselineAvgPrice=Math.max(0,Number(a.baselineAvgPrice)||0);a.baselineRealizedPnl=Number(a.baselineRealizedPnl)||0;a.currentPrice=Number(a.currentPrice)||null;a.quote=a.quote||null;a.history=Array.isArray(a.history)?a.history:[];a.monthEndPrices=a.monthEndPrices&&typeof a.monthEndPrices==='object'?a.monthEndPrices:{}}state.market.proxyUrl=state.market.proxyUrl||'/api/market';state.profile.monthlyInvestment=Math.max(0,Number(state.profile.monthlyInvestment)||Object.values(state.assets).reduce((n,a)=>n+(Number(a.monthly)||0),0)||600);if(Object.keys(state.assets).length){const total=Object.values(state.assets).reduce((n,a)=>n+(Number(a.target)||0),0);if(!Number.isFinite(total)||total<=0)normalizeTargets()}rebuildMeta()}
 const previousVersion=Number(state.version||0);normalizeDynamicState();if(previousVersion<15)storage.setItem(STORAGE,JSON.stringify(state));
 function cloudStatus(message,kind=''){const el=$('#cloudSyncStatus');if(!el)return;el.textContent=message;el.className=`sync-chip ${kind}`.trim()}
 async function apiRequest(path,options={}){const res=await fetch(path,{credentials:'same-origin',headers:{'Content-Type':'application/json',Accept:'application/json',...(options.headers||{})},...options});let data={};try{data=await res.json()}catch{}if(!res.ok){const err=new Error(data.error||`Request failed (${res.status})`);err.status=res.status;throw err}return data}
@@ -158,6 +158,40 @@ function totalRealized(){return Object.values(positions()).reduce((s,p)=>s+p.rea
 function totalUnreal(){return Object.values(positions()).reduce((s,p)=>s+p.unreal,0)}
 function totalDay(){const vals=Object.values(positions()).map(p=>p.day);return vals.some(v=>v!=null)?vals.reduce((s,v)=>s+(v||0),0):null}
 function grossInvested(){let n=0;for(const id of Object.keys(state.assets))n+=(Number(state.assets[id].baselineShares)||0)*(Number(state.assets[id].baselineAvgPrice)||0);for(const t of state.transactions)if(t.type==='buy')n+=(Number(t.shares)||0)*(Number(t.price)||0)+(Number(t.fee)||0);return n}
+// Two aligned series — real portfolio value (via the same point-in-time reconstruction
+// used by Calendar XIRR) and cumulative money contributed — sampled at a sensible
+// interval (daily for short histories, weekly/every-3-days for longer ones, so a
+// multi-year history doesn't produce thousands of points). Both series always have
+// exactly the same length and date at each index, since drawChart() positions points
+// by array index, not by date value.
+function compoundingGapSeries(){
+ const dates=state.transactions.map(t=>t.date);
+ for(const a of Object.values(state.assets))if(a.baselineDate)dates.push(a.baselineDate);
+ if(!dates.length)return{value:[],invested:[]};
+ const minDate=[...dates].sort()[0],today=new Date().toISOString().slice(0,10);
+ const points=[];
+ let cursor=new Date(minDate+'T00:00:00Z');const end=new Date(today+'T00:00:00Z');
+ const totalDays=Math.max(1,(end-cursor)/(1000*60*60*24)),stepDays=totalDays>730?7:totalDays>180?3:1;
+ while(cursor<=end){points.push(cursor.toISOString().slice(0,10));cursor.setUTCDate(cursor.getUTCDate()+stepDays)}
+ if(points.at(-1)!==today)points.push(today);
+ const sortedBuys=[];
+ for(const t of state.transactions)if(t.type==='buy')sortedBuys.push({date:t.date,amount:(Number(t.shares)||0)*(Number(t.price)||0)+(Number(t.fee)||0)});
+ for(const a of Object.values(state.assets)){
+  const baseShares=Number(a.baselineShares)||0;
+  if(baseShares>0&&a.baselineDate)sortedBuys.push({date:a.baselineDate,amount:baseShares*(Number(a.baselineAvgPrice)||0)});
+ }
+ sortedBuys.sort((x,y)=>x.date.localeCompare(y.date));
+ const fmtLabel=dateStr=>new Date(`${dateStr}T00:00:00`).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'2-digit'});
+ const valueSeries=[],investedSeries=[];
+ let buyIdx=0,running=0;
+ for(const date of points){
+  while(buyIdx<sortedBuys.length&&sortedBuys[buyIdx].date<=date){running+=sortedBuys[buyIdx].amount;buyIdx++}
+  investedSeries.push({date,label:fmtLabel(date),y:running});
+  const value=date===today?(state.market.lastUpdated?totalValue():null):portfolioValueAsOfDate(date);
+  valueSeries.push({date,label:fmtLabel(date),y:value});
+ }
+ return{value:valueSeries,invested:investedSeries};
+}
 function totalPnl(){return totalRealized()+totalUnreal()}
 function actualMonthlyAvg(lookback=3){const byMonth={};for(const t of state.transactions.filter(t=>t.type==='buy')){const m=t.date.slice(0,7);byMonth[m]=(byMonth[m]||0)+t.shares*t.price+(t.fee||0)}const now=new Date();let total=0,count=0;for(let i=1;i<=lookback;i++){const d=new Date(now);d.setMonth(d.getMonth()-i);const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;if(byMonth[key]){total+=byMonth[key];count++}}return count?total/count:0}
 function monthlyTotal(){const allocated=Object.values(state.assets).reduce((s,a)=>s+(Number(a.monthly)||0),0);if(allocated>0)return allocated;const avg=actualMonthlyAvg(3);if(avg>0)return avg;return Math.max(0,Number(state.profile.monthlyInvestment)||600)}
@@ -277,7 +311,15 @@ function sharesAsOfDate(id,dateStr){
  return Math.max(0,shares);
 }
 function priceAsOfDate(id,dateStr){
- const hist=state.assets[id]?.history||[];
+ const a=state.assets[id];
+ if(dateStr.length===10){
+  const year=Number(dateStr.slice(0,4)),month=Number(dateStr.slice(5,7));
+  if(Number.isFinite(year)&&Number.isFinite(month)&&dateStr===lastDayOfMonth(year,month)){
+   const snapshot=a?.monthEndPrices?.[dateStr.slice(0,7)];
+   if(snapshot!=null)return Number(snapshot);
+  }
+ }
+ const hist=a?.history||[];
  let best=null;
  for(const row of hist){if(row.date<=dateStr&&(!best||row.date>best.date))best=row}
  return best?Number(best.close):null;
@@ -335,6 +377,191 @@ function calendarXirr(year){
  const reason=x==null?(r.isCurrentYear&&!state.market.lastUpdated?'Sync prices to calculate':'Not enough activity yet'):null;
  return{xirr:x,reason,isCurrentYear:r.isCurrentYear,startValue:r.startValue,endValue:r.endValue};
 }
+// ── Year in review ───────────────────────────────────────────────────────
+// A monthly return, reusing the exact same XIRR machinery as Calendar XIRR (so
+// it's genuinely money-weighted, not distorted by contributions made mid-month)
+// but scoped to a single month and de-annualised back to an intuitive %.
+function lastDayOfMonth(year,month){return new Date(Date.UTC(month===12?year+1:year,month===12?0:month,0)).toISOString().slice(0,10)}
+function monthCashFlows(year,month){
+ const monthStart=`${year}-${String(month).padStart(2,'0')}-01`,monthEnd=lastDayOfMonth(year,month),today=new Date().toISOString().slice(0,10),isCurrentMonth=today.slice(0,7)===monthStart.slice(0,7);
+ const priorDay=new Date(monthStart+'T00:00:00Z');priorDay.setUTCDate(priorDay.getUTCDate()-1);
+ const startValue=portfolioValueAsOfDate(priorDay.toISOString().slice(0,10));
+ if(startValue==null)return{flows:null};
+ const flows=[];
+ if(startValue>0)flows.push({date:monthStart,amount:-startValue});
+ for(const a of Object.values(state.assets)){
+  const baseShares=Number(a.baselineShares)||0;
+  if(baseShares>0&&a.baselineDate&&a.baselineDate>=monthStart&&a.baselineDate<=monthEnd)flows.push({date:a.baselineDate,amount:-(baseShares*(Number(a.baselineAvgPrice)||0))});
+ }
+ for(const t of state.transactions){
+  if(t.date<monthStart||t.date>monthEnd)continue;
+  const shares=Number(t.shares)||0,price=Number(t.price)||0,fee=Number(t.fee)||0;
+  if(t.type==='buy')flows.push({date:t.date,amount:-(shares*price+fee)});
+  else flows.push({date:t.date,amount:shares*price-fee});
+ }
+ let endValue=null;
+ if(isCurrentMonth){
+  if(state.market.lastUpdated){endValue=totalValue();if(endValue>0)flows.push({date:today,amount:endValue})}
+ }else{
+  endValue=portfolioValueAsOfDate(monthEnd);
+  if(endValue==null)return{flows:null};
+  if(endValue>0)flows.push({date:monthEnd,amount:endValue});
+ }
+ return{flows,startValue,endValue};
+}
+function monthlyReturn(year,month){
+ const cf=monthCashFlows(year,month);
+ if(!cf.flows)return null;
+ const annualised=xirr(cf.flows);
+ return annualised==null?null:Math.pow(1+annualised,1/12)-1;
+}
+// Year x Month grid of monthly returns for the heatmap. The annual figure per row is
+// the compound of that row's own monthly cells (not calendarXirr, which is a different,
+// money-weighted metric) — so the total always reconciles with what's shown next to it.
+function monthlyReturnsGrid(){
+ const years=trackedCalendarYears();
+ return years.map(year=>{
+  const today=new Date(),isCurrentYear=today.getFullYear()===year,lastMonth=isCurrentYear?today.getMonth()+1:12;
+  const months=[];
+  for(let m=1;m<=12;m++)months.push(m<=lastMonth?monthlyReturn(year,m):null);
+  const available=months.filter(r=>r!=null);
+  const annual=available.length?available.reduce((acc,r)=>acc*(1+r),1)-1:null;
+  return{year,months,annual};
+ });
+}
+function bestWorstMonths(year){
+ const today=new Date(),isCurrentYear=today.getFullYear()===year,lastMonth=isCurrentYear?today.getMonth()+1:12;
+ const results=[];
+ for(let m=1;m<=lastMonth;m++){const r=monthlyReturn(year,m);if(r!=null)results.push({month:m,ret:r})}
+ if(!results.length)return{best:null,worst:null};
+ return{best:results.reduce((a,b)=>b.ret>a.ret?b:a),worst:results.reduce((a,b)=>b.ret<a.ret?b:a)};
+}
+function biggestContribution(year){
+ const yearStart=`${year}-01-01`,yearEnd=`${year}-12-31`;
+ let best=null;
+ for(const t of state.transactions){
+  if(t.type!=='buy'||t.date<yearStart||t.date>yearEnd)continue;
+  const amount=(Number(t.shares)||0)*(Number(t.price)||0)+(Number(t.fee)||0);
+  if(!best||amount>best.amount)best={date:t.date,amount,asset:t.asset};
+ }
+ return best;
+}
+function totalFeesPaid(year){
+ const yearStart=`${year}-01-01`,yearEnd=`${year}-12-31`;
+ return state.transactions.filter(t=>t.date>=yearStart&&t.date<=yearEnd).reduce((s,t)=>s+(Number(t.fee)||0),0);
+}
+function longestStreakInYear(year){
+ const byMonth={};
+ for(const t of state.transactions.filter(t=>t.type==='buy')){const m=t.date.slice(0,7);byMonth[m]=(byMonth[m]||0)+(Number(t.shares)||0)*(Number(t.price)||0)+(Number(t.fee)||0)}
+ const today=new Date(),isCurrentYear=today.getFullYear()===year,lastMonth=isCurrentYear?today.getMonth()+1:12,target=monthlyTotal()*.8;
+ let longest=0,current=0;
+ for(let m=1;m<=lastMonth;m++){
+  const key=`${year}-${String(m).padStart(2,'0')}`;
+  if((byMonth[key]||0)>=target){current++;longest=Math.max(longest,current)}else current=0;
+ }
+ return longest;
+}
+// "If you'd done nothing" — freezes the shares you held going into the year (or,
+// if the year started with nothing, your first purchase within it) and grows
+// only that by pure price movement, with no further contributions, so it
+// isolates market performance from the effect of continuing to invest.
+function doNothingComparison(year){
+ const yearStart=`${year}-01-01`,priorYearEnd=`${year-1}-12-31`,today=new Date().toISOString().slice(0,10),isCurrentYear=String(year)===today.slice(0,4),endDate=isCurrentYear?today:`${year}-12-31`;
+ let baselineDate=priorYearEnd,hadStartingCapital=(portfolioValueAsOfDate(priorYearEnd)||0)>0;
+ if(!hadStartingCapital){
+  const firstBuy=state.transactions.filter(t=>t.type==='buy'&&t.date>=yearStart&&t.date<=`${year}-12-31`).sort((a,b)=>a.date.localeCompare(b.date))[0];
+  if(!firstBuy)return null;
+  baselineDate=firstBuy.date;
+ }
+ let total=0;
+ for(const id of Object.keys(state.assets)){
+  const shares=sharesAsOfDate(id,baselineDate);
+  if(shares<=1e-10)continue;
+  const price=isCurrentYear?(Number(state.assets[id].currentPrice)||null):priceAsOfDate(id,endDate);
+  if(price==null)return null;
+  total+=shares*price;
+ }
+ return{frozenValue:total,baselineDate}
+}
+function yearInReviewData(year){
+ const {best,worst}=bestWorstMonths(year);
+ const contribution=biggestContribution(year),fees=totalFeesPaid(year),streak=longestStreakInYear(year),xirrDetail=calendarXirr(year),frozen=doNothingComparison(year);
+ const cf=calendarYearCashFlows(year);
+ return{
+  year,
+  xirr:xirrDetail.xirr,isCurrentYear:xirrDetail.isCurrentYear,
+  startValue:cf.startValue,endValue:cf.endValue,
+  bestMonth:best,worstMonth:worst,
+  biggestContribution:contribution,
+  totalFees:fees,
+  longestStreak:streak,
+  frozenValue:frozen?frozen.frozenValue:null,
+  contributed:(cf.flows||[]).filter(f=>f.amount<0&&f.date!==`${year}-01-01`).reduce((s,f)=>s-f.amount,0),
+ };
+}
+const MONTH_NAMES=['January','February','March','April','May','June','July','August','September','October','November','December'];
+function wrappedSlide({bg,fg,eyebrow,number,label,sub}){
+ return `<section class="wrapped-slide" style="background:${bg};color:${fg}">${eyebrow?`<div class="wrapped-eyebrow">${esc(eyebrow)}</div>`:''}${number?`<div class="wrapped-number">${number}</div>`:''}${label?`<div class="wrapped-label">${label}</div>`:''}${sub?`<div class="wrapped-sub">${sub}</div>`:''}</section>`;
+}
+function renderYearInReview(year){
+ const scroll=$('#wrappedScroll');if(!scroll)return;
+ const d=yearInReviewData(year);
+ const slides=[];
+ slides.push(wrappedSlide({bg:'#141414',fg:'#FFFFFF',eyebrow:'Your year with Northstar',label:`${year}, so far`,sub:`Everything on the next few screens comes straight from your own trade history — no estimates.`}));
+ if(d.xirr!=null){
+  slides.push(wrappedSlide({bg:'#FFD927',fg:'#141414',eyebrow:`Your ${year} XIRR`,number:`${d.xirr>=0?'+':''}${(d.xirr*100).toFixed(1)}%`,label:'money-weighted return',sub:'The actual rate your money grew at, accounting for exactly when you put it in.'}));
+ }else{
+  slides.push(wrappedSlide({bg:'#FFD927',fg:'#141414',eyebrow:'Still early',label:'Not enough history yet for a full return',sub:'Sync more price history and this will fill in.'}));
+ }
+ const sameMonth=d.bestMonth&&d.worstMonth&&d.bestMonth.month===d.worstMonth.month;
+ if(d.bestMonth&&sameMonth){
+  slides.push(wrappedSlide({bg:'#1B8A4C',fg:'#FFFFFF',eyebrow:'Your only month with a verdict',number:`${d.bestMonth.ret>=0?'+':''}${(d.bestMonth.ret*100).toFixed(1)}%`,label:MONTH_NAMES[d.bestMonth.month-1],sub:'More months will show up here as the year goes on.'}));
+ }else{
+  if(d.bestMonth)slides.push(wrappedSlide({bg:'#1B8A4C',fg:'#FFFFFF',eyebrow:'Your best month',number:`+${(d.bestMonth.ret*100).toFixed(1)}%`,label:MONTH_NAMES[d.bestMonth.month-1]}));
+  if(d.worstMonth)slides.push(wrappedSlide({bg:'#E0362C',fg:'#FFFFFF',eyebrow:'Your toughest month',number:`${(d.worstMonth.ret*100).toFixed(1)}%`,label:MONTH_NAMES[d.worstMonth.month-1],sub:'Every investor has one of these. It only matters what you did after.'}));
+ }
+ if(d.biggestContribution){
+  slides.push(wrappedSlide({bg:'#2E6BE6',fg:'#FFFFFF',eyebrow:'Your biggest single move',number:fmt(d.biggestContribution.amount,0),label:`into ${esc(META[d.biggestContribution.asset]?.ticker||d.biggestContribution.asset)}`,sub:`on ${dateFmt(d.biggestContribution.date)}`}));
+ }
+ if(d.frozenValue!=null&&d.endValue!=null){
+  const diff=d.endValue-d.frozenValue;
+  slides.push(wrappedSlide({bg:'#7B5CD6',fg:'#FFFFFF',eyebrow:diff>=0?'The power of showing up':'Worth knowing',number:`${diff>=0?'+':''}${fmt(diff,0)}`,label:diff>=0?'more than if you\u2019d frozen your portfolio and added nothing more':'less than a frozen portfolio would show',sub:diff>=0?'That gap is what continuing to invest, not just holding, actually earned you.':'Contribution timing varies year to year — this isn\u2019t a verdict on the whole strategy.'}));
+ }
+ if(d.longestStreak>0){
+  slides.push(wrappedSlide({bg:'#FFD927',fg:'#141414',eyebrow:'Consistency',number:String(d.longestStreak),label:`month${d.longestStreak===1?'':'s'} in a row hitting your plan`}));
+ }
+ slides.push(wrappedSlide({bg:'#141414',fg:'#FFFFFF',eyebrow:'Cost of doing business',number:fmt(d.totalFees,2),label:`in trading fees during ${year}`}));
+ slides.push(wrappedSlide({bg:'#F5F1E8',fg:'#141414',eyebrow:'That\u2019s a wrap',label:`See you next year, or come back any time.`,sub:'Every number here will keep updating as you go.'}));
+ scroll.innerHTML=slides.join('');
+ scroll.scrollTop=0;
+}
+function renderWrappedYearNav(year){
+ const nav=$('#wrappedYearNav');if(!nav)return;
+ const years=trackedCalendarYears();
+ const idx=years.indexOf(year);
+ nav.innerHTML=years.length>1?`<button type="button" data-wrapped-year-nav="prev"${idx<=0?' disabled':''}>‹</button><span>${year}</span><button type="button" data-wrapped-year-nav="next"${idx>=years.length-1?' disabled':''}>›</button>`:`<span>${year}</span>`;
+}
+let wrappedYear=null;
+function openWrapped(){
+ const years=trackedCalendarYears();
+ if(!years.length){toast('Add holdings and trades first.','warn');return}
+ wrappedYear=years.at(-1);
+ renderYearInReview(wrappedYear);
+ renderWrappedYearNav(wrappedYear);
+ $('#wrappedOverlay').hidden=false;
+}
+function closeWrapped(){$('#wrappedOverlay').hidden=true}
+$('#viewWrappedBtn')?.addEventListener('click',openWrapped);
+$('#wrappedClose')?.addEventListener('click',closeWrapped);
+$('#wrappedOverlay')?.addEventListener('keydown',e=>{if(e.key==='Escape')closeWrapped()});
+$('#wrappedYearNav')?.addEventListener('click',e=>{
+ const dir=e.target.dataset.wrappedYearNav;if(!dir)return;
+ const years=trackedCalendarYears(),idx=years.indexOf(wrappedYear);
+ if(dir==='prev'&&idx>0)wrappedYear=years[idx-1];
+ else if(dir==='next'&&idx<years.length-1)wrappedYear=years[idx+1];
+ renderYearInReview(wrappedYear);
+ renderWrappedYearNav(wrappedYear);
+});
 function alignSeries(seriesMap){const ids=Object.keys(seriesMap);if(!ids.length||ids.some(k=>!seriesMap[k]?.length))return [];let common=new Set(seriesMap[ids[0]].map(x=>x.date));for(const id of ids.slice(1))common=new Set([...common].filter(d=>seriesMap[id].some(x=>x.date===d)));return [...common].sort().map(date=>({date,...Object.fromEntries(ids.map(id=>[id,seriesMap[id].find(x=>x.date===date).close]))}))}
 function returnsFromPrices(rows,keys,weights){const out=[];for(let i=1;i<rows.length;i++){let r=0,valid=true;for(const k of keys){const a=rows[i-1][k],b=rows[i][k];if(!a||!b){valid=false;break}r+=weights[k]*(b/a-1)}if(valid)out.push({date:rows[i].date,r})}return out}
 function mean(a){return a.length?a.reduce((s,x)=>s+x,0)/a.length:0}function stdev(a){if(a.length<2)return null;const m=mean(a);return Math.sqrt(a.reduce((s,x)=>s+(x-m)**2,0)/(a.length-1))}function covariance(a,b){const n=Math.min(a.length,b.length);if(n<2)return null;const aa=a.slice(-n),bb=b.slice(-n),ma=mean(aa),mb=mean(bb);return aa.reduce((s,x,i)=>s+(x-ma)*(bb[i]-mb),0)/(n-1)}function correlation(a,b){const c=covariance(a,b),sa=stdev(a),sb=stdev(b);return c!=null&&sa&&sb?c/(sa*sb):null}
@@ -442,7 +669,29 @@ function friendlyMarketError(err){const raw=err?.diagnostic||err?.message||Strin
 async function fetchJson(url,options={}){const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),15000);let res,text,data=null;try{res=await fetch(url,{headers:{Accept:'application/json'},signal:ctrl.signal,...options});text=await res.text()}catch(e){clearTimeout(timer);if(e.name==='AbortError')throw new MarketDataError('Request timed out after 15 seconds.','network',e.message);throw new MarketDataError('Failed to reach market service.','network',e.message||String(e))}clearTimeout(timer);try{data=text?JSON.parse(text):null}catch{}if(res.status===404)throw new MarketDataError('Northstar proxy endpoint is not deployed.','proxy_missing',text||'HTTP 404');if(res.status===429)throw new MarketDataError('Market service rate limit reached.','rate_limit',(data&&(data.message||data.error))||text||'HTTP 429');if(!res.ok){const detail=(data&&(data.message||data.error||data.status))||text||`HTTP ${res.status}`;throw new MarketDataError(`Market-data request returned HTTP ${res.status}.`,res.status===401?'key':'provider',String(detail).slice(0,500))}if(data&&data.error)throw new MarketDataError(String(data.error),'provider',String(data.error));return data}
 function historyRange(){const n=Number(state.market.historySize)||260;return n>520?'3y':n>260?'2y':'1y'}
 function proxyUrl(symbols,full=false,override,force=false){const base='/api/market';const u=new URL(base,document.baseURI||location.href);u.searchParams.set('symbols',symbols.join(','));u.searchParams.set('range',full?historyRange():'5d');u.searchParams.set('interval',full?'1d':'1m');u.searchParams.set('mode',full?'history':'quote');if(force&&!full)u.searchParams.set('fresh','1');return u;}
-function applyUnifiedAsset(id,payload,full=false){if(!payload)throw new MarketDataError(`${META[id].ticker} returned no quote payload.`,'provider');const basis='last',p=Number(payload.lastTrade??payload.price);if(!Number.isFinite(p)||p<=0)throw new MarketDataError(`${META[id].ticker} returned no usable price.`,'provider',JSON.stringify(payload||{}).slice(0,500));const a=state.assets[id],prev=Number(payload.previousClose)||null;a.currentPrice=p;a.ticker=payload.ticker||a.ticker;const payloadName=String(payload.name||'').trim();if(payloadName&&payloadName.toUpperCase()!==String(payload.ticker||a.ticker||'').toUpperCase())a.name=payloadName;else if(!a.name)a.name=payloadName||a.ticker;a.exchange=payload.exchange||a.exchange||exchangeName(a.symbol);a.currency='EUR';a.nativeCurrency=payload.nativeCurrency||a.nativeCurrency||'EUR';a.quote={previousClose:prev,change:prev?p-prev:null,percentChange:prev?(p/prev-1)*100:null,datetime:payload.marketTime||payload.updatedAt||new Date().toISOString(),marketOpen:payload.marketState==='REGULAR',marketState:payload.marketState||null,source:payload.source||providerLabel(),currency:'EUR',nativeCurrency:payload.nativeCurrency||'EUR',nativePrice:Number(payload.nativePrice)||null,fxToEur:Number(payload.fxToEur)||1,exchange:payload.exchange||a.exchange||exchangeName(a.symbol),priceBasis:basis,lastTrade:p,bid:null,ask:null,mid:null,spreadPct:null};const values=(payload.history||[]).filter(x=>x&&x.date&&Number(x.close));if(full&&values.length)a.history=values.slice(-(state.market.historySize||260));else if(values.length){const latest=values.at(-1),date=String(latest.date).slice(0,10),last=a.history?.at(-1);a.history=a.history||[];if(last?.date===date)last.close=Number(latest.close);else a.history.push({date,close:Number(latest.close)});a.history=a.history.slice(-(state.market.historySize||260))}rebuildMeta()}
+// Permanently locks in each completed month's last trading-day close the first
+// time it's seen, independent of the rolling daily history window (which gets
+// truncated on every sync via state.market.historySize). Without this, a
+// monthly-returns heatmap covering several years would silently lose its
+// older cells once the daily window moved past them — even though the data
+// was genuinely available at some point. December's snapshot doubles as the
+// year-end value used elsewhere (Calendar XIRR's year boundaries).
+function captureMonthEndSnapshots(a,rows){
+ if(!rows||!rows.length)return;
+ a.monthEndPrices=a.monthEndPrices||{};
+ const today=new Date().toISOString().slice(0,10),currentMonth=today.slice(0,7);
+ const byMonth=new Map();
+ for(const row of rows){
+  const month=String(row.date).slice(0,7);
+  if(month>=currentMonth)continue; // only lock in fully completed months
+  const existing=byMonth.get(month);
+  if(!existing||row.date>existing.date)byMonth.set(month,row);
+ }
+ for(const [month,row] of byMonth){
+  if(a.monthEndPrices[month]==null)a.monthEndPrices[month]=Number(row.close);
+ }
+}
+function applyUnifiedAsset(id,payload,full=false){if(!payload)throw new MarketDataError(`${META[id].ticker} returned no quote payload.`,'provider');const basis='last',p=Number(payload.lastTrade??payload.price);if(!Number.isFinite(p)||p<=0)throw new MarketDataError(`${META[id].ticker} returned no usable price.`,'provider',JSON.stringify(payload||{}).slice(0,500));const a=state.assets[id],prev=Number(payload.previousClose)||null;a.currentPrice=p;a.ticker=payload.ticker||a.ticker;const payloadName=String(payload.name||'').trim();if(payloadName&&payloadName.toUpperCase()!==String(payload.ticker||a.ticker||'').toUpperCase())a.name=payloadName;else if(!a.name)a.name=payloadName||a.ticker;a.exchange=payload.exchange||a.exchange||exchangeName(a.symbol);a.currency='EUR';a.nativeCurrency=payload.nativeCurrency||a.nativeCurrency||'EUR';a.quote={previousClose:prev,change:prev?p-prev:null,percentChange:prev?(p/prev-1)*100:null,datetime:payload.marketTime||payload.updatedAt||new Date().toISOString(),marketOpen:payload.marketState==='REGULAR',marketState:payload.marketState||null,source:payload.source||providerLabel(),currency:'EUR',nativeCurrency:payload.nativeCurrency||'EUR',nativePrice:Number(payload.nativePrice)||null,fxToEur:Number(payload.fxToEur)||1,exchange:payload.exchange||a.exchange||exchangeName(a.symbol),priceBasis:basis,lastTrade:p,bid:null,ask:null,mid:null,spreadPct:null};const values=(payload.history||[]).filter(x=>x&&x.date&&Number(x.close));if(full&&values.length)a.history=values.slice(-(state.market.historySize||260));else if(values.length){const latest=values.at(-1),date=String(latest.date).slice(0,10),last=a.history?.at(-1);a.history=a.history||[];if(last?.date===date)last.close=Number(latest.close);else a.history.push({date,close:Number(latest.close)});a.history=a.history.slice(-(state.market.historySize||260))}captureMonthEndSnapshots(a,values);rebuildMeta()}
 function applyUnifiedBenchmark(key,payload){const values=(payload?.history||[]).filter(x=>x&&x.date&&Number(x.close));if(values.length)state.benchmarks[key].history=values.slice(-(state.market.historySize||260))}
 async function fetchProxyBatch(full=false,endpointOverride,force=false){
  const assetIds=Object.keys(state.assets),assetSymbols=assetIds.map(id=>state.assets[id].symbol),benchmarkKeys=Object.keys(state.benchmarks),benchmarkSymbols=full?benchmarkKeys.map(key=>state.benchmarks[key].symbol):[],symbols=[...assetSymbols,...benchmarkSymbols];
@@ -646,6 +895,14 @@ function renderMonteCarlo(){
 }
 function drawMainChart(){
  const mode=state.ui.chartMode||'performance',canvas=$('#mainChart');
+ if(mode==='gap'){
+  const gap=compoundingGapSeries(),hasData=gap.value.filter(p=>p.y!=null).length>=2;
+  $('#mainChartTitle').textContent='The compounding gap';
+  $('#mainChartSub').textContent=hasData?'Your real portfolio value vs. just the money you put in · hover for exact values':'Add trades and sync price history to see this build up over time.';
+  $('#mainLegend').innerHTML='<span><i style="background:#141414"></i>Portfolio value</span><span><i style="background:#9B968A"></i>Total invested</span>';
+  drawChart(canvas,[{name:'Portfolio value',color:'#141414',width:3.4,data:gap.value},{name:'Total invested',color:'#9B968A',width:1.8,dash:[5,4],data:gap.invested}],{currency:true});
+  return;
+ }
  if(mode==='projection'){const years=20,base=state.profile.expectedReturn,series=[{name:'Base',color:'#141414',data:[]},{name:'Optimistic',color:'#2E6BE6',data:[]},{name:'Cautious',color:'#9B968A',data:[]}];for(let year=0;year<=years;year++){series[0].data.push({label:`Y${year}`,y:futureValue(totalValue(),monthlyTotal(),base,year)});series[1].data.push({label:`Y${year}`,y:futureValue(totalValue(),monthlyTotal(),base+2,year)});series[2].data.push({label:`Y${year}`,y:futureValue(totalValue(),monthlyTotal(),Math.max(0,base-2),year)})}$('#mainChartTitle').textContent='20-year projection';$('#mainChartSub').textContent='Illustrative, not guaranteed';$('#mainLegend').innerHTML=series.map(item=>`<span><i style="background:${item.color}"></i>${item.name}</span>`).join('');drawChart(canvas,series,{currency:true});return}
  if(mode==='goal'){const years=Math.max(10,state.profile.goalYears),data=[];for(let year=0;year<=years;year++)data.push({label:`Y${year}`,y:futureValue(totalValue(),monthlyTotal(),state.profile.expectedReturn,year)});const goal=data.map(point=>({label:point.label,y:state.profile.goal}));$('#mainChartTitle').textContent='Path to first €100k';$('#mainChartSub').textContent=`Current ${fmt(monthlyTotal())} monthly plan`;$('#mainLegend').innerHTML='<span><i style="background:#141414"></i>Plan</span><span><i style="background:#B07A00"></i>Goal</span>';drawChart(canvas,[{name:'Plan',color:'#141414',data,width:3.5},{name:'Goal',color:'#B07A00',data:goal,width:1.6}],{currency:true});return}
  if(mode==='montecarlo'){
@@ -682,7 +939,7 @@ function healthScore(){let s=0;s+=state.market.lastUpdated?25:0;s+=Math.round(dr
 function seriesSpanMonths(series){if(!series||series.length<5)return 0;const first=new Date(series[0].date+'T00:00:00'),last=new Date(series.at(-1).date+'T00:00:00');return (last-first)/(1000*60*60*24*30.44)}
 function renderDcaBacktest(){const el=$('#dcaBacktestBody');if(!el)return;const monthly=monthlyTotal(),ps=modelSeries(),qs=benchmarkSeries('qqq'),ss=benchmarkSeries('spy');if(ps.length<5){el.innerHTML='<tr><td colspan="6"><div class="empty">Sync 1+ year of your own portfolio history to run the DCA backtest.</div></td></tr>';return}const available=seriesSpanMonths(ps);const periods=[{label:'1 year',months:12},{label:'2 years',months:24},{label:'3 years',months:36}].filter(p=>available>=p.months*0.9);if(!periods.length){el.innerHTML='<tr><td colspan="6"><div class="empty">Sync 1+ year of your own portfolio history to run the DCA backtest.</div></td></tr>';return}el.innerHTML=periods.map(({label,months})=>{const p=dcaSimFromSeries(filterSeriesMonths(ps,months),monthly),q=dcaSimFromSeries(filterSeriesMonths(qs,months),monthly),s=dcaSimFromSeries(filterSeriesMonths(ss,months),monthly);if(!p&&!q)return'';const vq=p&&q?p.totalReturn-q.totalReturn:null,vs=p&&s?p.totalReturn-s.totalReturn:null;return`<tr><td><strong>${label}</strong></td><td>${p?fmt(p.endValue,0):'--'}</td><td>${p?fmt(p.contributions,0):'--'}</td><td class="${p?p.totalReturn>=0?'positive':'negative':''}">${p?`${p.totalReturn>=0?'+':''}${pct(p.totalReturn)}`:'--'}</td><td class="${vq==null?'':vq>=0?'positive':'negative'}">${vq==null?'--':`${vq>=0?'+':''}${pct(vq)} pp`}</td><td class="${vs==null?'':vs>=0?'positive':'negative'}">${vs==null?'--':`${vs>=0?'+':''}${pct(vs)} pp`}</td></tr>`;}).join('')}
 function renderGoalSensitivity(){const el=$('#goalSensitivityGrid');if(!el)return;const tv=totalValue(),goal=state.profile.goal,rate=state.profile.expectedReturn,current=monthlyTotal();if(!Object.keys(state.assets).length){el.innerHTML='<div class="empty">Add holdings to see goal sensitivity.</div>';return}const amounts=[...new Set([200,300,400,500,600,700,800,900,1000,1200,1500,Math.round(current)])].filter(m=>m>0).sort((a,b)=>a-b);el.innerHTML=amounts.map(m=>{const months=monthsToGoal(goal,tv,m,rate),label=dateAfterMonths(months),isCurrent=Math.abs(m-current)<1,barW=Number.isFinite(months)?Math.max(4,Math.min(100,Math.round((1-months/Math.max(months,120))*100))):4;return`<div class="benchmark-row" style="${isCurrent?'font-weight:700;color:var(--ink)':''}"><span>${isCurrent?`\u25b8 ${fmt(m,0)}/mo`:`${fmt(m,0)}/mo`}</span><div class="bar"><i style="width:${barW}%;background:${isCurrent?'#141414':'#BDB8A8'}"></i></div><strong>${label}</strong></div>`;}).join('')}
-function renderReview(){const items=reviewItems(),score=healthScore();$('#scoreValue').textContent=score;$('#scoreRing').style.background=`conic-gradient(${score>=80?'var(--green)':score>=60?'var(--amber)':'var(--red)'} ${score*3.6}deg,#E4E0D2 0)`;$('#reviewHeadline').textContent=score>=85?'Portfolio system is healthy':score>=65?'Solid foundation—keep refining':'Complete the operating system';$('#reviewCopy').textContent=score>=85?'Your data, allocation, contribution habit, and goal plan are working together.':score>=65?'The strategy is coherent, but one or two setup or consistency gaps remain.':'Connect live data, enter exact holdings, and build a consistent monthly record.';$('#reviewList').innerHTML=items.map(x=>`<div class="review-item"><h4 class="${x.status==='good'?'positive':x.status==='warn'?'amber':'negative'}">${x.title}</h4><p>${x.body}</p></div>`).join('');const validReviews=state.reviews.filter(r=>r.value>0||r.score>0);$('#reviewLedger').innerHTML=validReviews.length?[...validReviews].reverse().slice(0,8).map(r=>`<div class="review-item"><h4>${dateFmt(r.date)}</h4><p>Health ${r.score}/100 · value ${fmt(r.value,0)} · drift ${r.drift}/100</p></div>`).join(''):'<div class="empty">No saved reviews yet. Sync prices first, then run a review.</div>';renderDcaBacktest();renderGoalSensitivity();renderCalendarXirr();renderWhatIfBacktest()}
+function renderReview(){const items=reviewItems(),score=healthScore();$('#scoreValue').textContent=score;$('#scoreRing').style.background=`conic-gradient(${score>=80?'var(--green)':score>=60?'var(--amber)':'var(--red)'} ${score*3.6}deg,#E4E0D2 0)`;$('#reviewHeadline').textContent=score>=85?'Portfolio system is healthy':score>=65?'Solid foundation—keep refining':'Complete the operating system';$('#reviewCopy').textContent=score>=85?'Your data, allocation, contribution habit, and goal plan are working together.':score>=65?'The strategy is coherent, but one or two setup or consistency gaps remain.':'Connect live data, enter exact holdings, and build a consistent monthly record.';$('#reviewList').innerHTML=items.map(x=>`<div class="review-item"><h4 class="${x.status==='good'?'positive':x.status==='warn'?'amber':'negative'}">${x.title}</h4><p>${x.body}</p></div>`).join('');const validReviews=state.reviews.filter(r=>r.value>0||r.score>0);$('#reviewLedger').innerHTML=validReviews.length?[...validReviews].reverse().slice(0,8).map(r=>`<div class="review-item"><h4>${dateFmt(r.date)}</h4><p>Health ${r.score}/100 · value ${fmt(r.value,0)} · drift ${r.drift}/100</p></div>`).join(''):'<div class="empty">No saved reviews yet. Sync prices first, then run a review.</div>';renderDcaBacktest();renderGoalSensitivity();renderCalendarXirr();renderMonthlyHeatmap();renderWhatIfBacktest()}
 function renderCalendarXirr(){
  const el=$('#calendarXirrGrid');if(!el)return;
  const years=trackedCalendarYears();
@@ -694,6 +951,34 @@ function renderCalendarXirr(){
   const caption=r.xirr==null?(r.reason||'Not enough data'):(r.isCurrentYear?'1 Jan – today (year to date)':'1 Jan – 31 Dec');
   return `<article class="card kpi"><label>${r.year}</label><strong class="${cls}">${value}</strong><small>${esc(caption)}</small></article>`;
  }).join('');
+}
+function heatColor(ret){
+ if(ret==null)return'transparent';
+ const intensity=Math.min(1,Math.abs(ret)/.08),alpha=(.14+intensity*.56).toFixed(2);
+ return ret>=0?`rgba(27,138,76,${alpha})`:`rgba(224,54,44,${alpha})`;
+}
+function renderMonthlyHeatmap(){
+ const el=$('#monthlyHeatmap');if(!el)return;
+ const grid=monthlyReturnsGrid();
+ if(!grid.length){el.innerHTML='<div class="empty">Add holdings and trades to see monthly returns.</div>';return}
+ const monthLabels=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+ el.innerHTML=`<div class="heatmap-scroll"><table class="heatmap-table"><thead><tr><th></th>${monthLabels.map(m=>`<th>${m}</th>`).join('')}<th>Year</th></tr></thead><tbody>${grid.map(row=>`<tr><td class="heatmap-year">${row.year}</td>${row.months.map((r,i)=>`<td style="background:${heatColor(r)}" data-year="${row.year}" data-month="${monthLabels[i]}"${r==null?'':` data-value="${r}"`}>${r==null?'':`${r>=0?'+':''}${(r*100).toFixed(1)}`}</td>`).join('')}<td class="heatmap-annual ${row.annual==null?'':row.annual>=0?'positive':'negative'}">${row.annual==null?'—':`${row.annual>=0?'+':''}${(row.annual*100).toFixed(1)}%`}</td></tr>`).join('')}</tbody></table></div><div class="canvas-tooltip" id="heatmapTooltip"></div>`;
+ el.style.position='relative';
+ if(!el.__hoverBound){
+  el.__hoverBound=true;
+  el.addEventListener('mousemove',event=>{
+   const tip=$('#heatmapTooltip');if(!tip)return;
+   const cell=event.target.closest('td[data-year]');
+   if(!cell||cell.dataset.value===undefined){tip.style.opacity=0;return}
+   const value=Number(cell.dataset.value);
+   tip.innerHTML=`<strong>${esc(cell.dataset.month)} ${esc(cell.dataset.year)}</strong><span><b>Return</b><b>${value>=0?'+':''}${(value*100).toFixed(2)}%</b></span>`;
+   const outer=el.getBoundingClientRect(),cellRect=cell.getBoundingClientRect();
+   tip.style.left=`${cellRect.left-outer.left+cellRect.width/2}px`;
+   tip.style.top=`${cellRect.top-outer.top}px`;
+   tip.style.opacity=1;
+  });
+  el.addEventListener('mouseleave',()=>{const tip=$('#heatmapTooltip');if(tip)tip.style.opacity=0});
+ }
 }
 function renderWhatIfBacktest(){
  const el=$('#whatIfGrid');if(!el)return;

@@ -1,5 +1,81 @@
 # Changelog
 
+## 2.2.3 - 2026-09-08
+
+- **Added:** hover tooltip on the Monthly returns heatmap, matching the styled
+  tooltip already used on every other chart in the app (dark card, yellow
+  offset shadow) instead of the plain native browser tooltip it had before.
+  Shows month, year, and the exact return to 2 decimal places — more precise
+  than the 1-decimal figure printed in the cell itself. Hovering the Year
+  column or an empty (no-data) cell correctly shows nothing. Tested against a
+  hand-built DOM mock (no network access in this environment to install a real
+  one) covering: a real data cell, an empty cell, the Year/annual column, and
+  mouseleave — all behave as intended.
+- Bumped `app.css`/`app.js` cache-busting version to 26.4.
+
+## 2.2.2 - 2026-09-08
+
+- **Added:** Monthly returns heatmap on the Review page, below Calendar XIRR —
+  a Year x Month grid in the style of justETF's fund profile pages, colour
+  intensity scaled by magnitude (a bigger move, up or down, reads darker), plus
+  a Year column that's the compound of that row's own months rather than a
+  separately-computed figure, so it always reconciles with the cells next to
+  it. Built entirely on `monthlyReturn()` from the Year in Review work — same
+  XIRR-based, contribution-aware monthly return, just laid out as a grid
+  instead of a story.
+- **Added:** permanent month-end price snapshots (`monthEndPrices`), replacing
+  the narrower year-end-only version from an earlier round that was never
+  actually applied. Every completed month's last trading-day close gets locked
+  in the first time it's seen, independent of the rolling daily history window
+  — which is what keeps a multi-year heatmap's older cells from silently going
+  blank once the daily window rolls past them. Re-verified the same way as
+  before: simulated the daily window rolling completely past a full year of
+  data and confirmed month-end lookups still resolve correctly; confirmed the
+  current in-progress month never gets a premature snapshot; confirmed
+  re-syncing doesn't overwrite an already-captured value.
+- Bumped `app.css`/`app.js` cache-busting version to 26.3.
+
+## 2.2.1 - 2026-09-08
+
+- **Added:** "Compounding gap" — a fifth mode on the Overview page's Performance
+  ledger chart, next to Performance/Projection/Goal path/Monte Carlo. Plots two
+  real lines: your actual portfolio value (via the same point-in-time
+  reconstruction proven correct for Calendar XIRR — not the "today's weights
+  applied to history" approximation the Performance mode uses) against a
+  cumulative running total of money contributed. The widening gap between them
+  is the entire case for investing over saving, made of real numbers instead
+  of a textbook illustration. Samples at a sensible interval (daily for short
+  histories, weekly for 2+ years) so a long history doesn't produce thousands
+  of points. Verified both series stay perfectly aligned (identical length,
+  identical date at every index — required for the shared chart renderer to
+  position them correctly), that both series' final points exactly match
+  `totalValue()`/`grossInvested()`, and that missing early price history
+  degrades to honest gaps in the line rather than a crash or a guess.
+- Bumped the cache-busting version on `app.css`/`app.js` (`26.0` → `26.2`) —
+  the last two rounds of changes shipped without bumping this, which meant
+  browsers with an already-cached copy wouldn't see anything new without a
+  manual hard refresh.
+
+## 2.2.0 - 2026-09-07
+
+- **Added:** Year in Review — a full-screen, Spotify-Wrapped-style retrospective,
+  triggered on demand from a new "Year in review" button next to Calendar XIRR.
+  Built entirely on data the app already tracks, with two genuinely new pieces
+  of analysis added specifically for this: a **monthly return** (reuses the
+  same XIRR engine as Calendar XIRR, scoped to one month and de-annualised back
+  to an intuitive %, so contributions made mid-month don't distort it) powering
+  best/worst month, and a **"if you'd done nothing" comparison** — freezes the
+  shares held going into the year (or your first purchase, if the year started
+  with nothing) and grows only that by pure price movement, isolating market
+  performance from the effect of continuing to invest. Also surfaces biggest
+  single contribution, longest contribution streak, and total fees paid.
+  Verified the monthly-return engine the same way as Calendar XIRR — NPV at
+  the solved rate is zero to floating-point precision — and tested the full
+  render pipeline against a year with rich data, a year with only one month
+  of history (merges best/worst into one slide instead of showing the same
+  month twice), and a year with zero activity (degrades to a short, honest
+  version rather than crashing or fabricating stats).
+
 ## 2.1.2 - 2026-09-07
 
 - **Added:** pagination on the Trade history table (7 rows per page) — was

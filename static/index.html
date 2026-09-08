@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Archivo+Black&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/css/app.css?v=26.0">
+<link rel="stylesheet" href="/static/css/app.css?v=26.4">
 </head>
 <body>
 <div class="auth-boot" id="authBoot" role="status" aria-live="polite" aria-label="Opening Northstar"><div class="auth-boot-card"><div class="auth-boot-mark">N</div><div class="auth-boot-name">Northstar</div><div class="auth-boot-status">Opening your portfolio</div><div class="auth-boot-bar"></div></div></div>
@@ -72,7 +72,7 @@
   <article class="card kpi"><div class="kpi-top"><div class="kpi-icon">⚖</div><span class="eyebrow">Allocation</span></div><label>Drift score</label><strong id="driftMetric">—</strong><small id="driftSub">100 means on target</small></article>
   <article class="card kpi"><div class="kpi-top"><div class="kpi-icon">◆</div><span class="eyebrow">Habit</span></div><label>Contribution streak</label><strong id="streakMetric">—</strong><small id="streakSub">Months on plan</small></article>
  </div>
- <div class="section"><div><h2>Performance ledger</h2><p>Your portfolio, benchmarks, allocation, and projected path on one clean page.</p></div><div class="seg" id="chartMode"><button class="active" data-mode="performance">Performance</button><button data-mode="projection">Projection</button><button data-mode="goal">Goal path</button><button data-mode="montecarlo">Monte Carlo</button></div></div>
+ <div class="section"><div><h2>Performance ledger</h2><p>Your portfolio, benchmarks, allocation, and projected path on one clean page.</p></div><div class="seg" id="chartMode"><button class="active" data-mode="performance">Performance</button><button data-mode="projection">Projection</button><button data-mode="goal">Goal path</button><button data-mode="montecarlo">Monte Carlo</button><button data-mode="gap">Compounding gap</button></div></div>
  <div class="grid two">
   <article class="card chart-card"><div class="chart-head"><div><div class="chart-title" id="mainChartTitle">Portfolio vs benchmarks</div><div class="chart-sub" id="mainChartSub">Time-weighted model from synced daily closes</div></div><div class="legend" id="mainLegend"></div></div><canvas id="mainChart"></canvas></article>
   <article class="card alloc"><div class="chart-head"><div><div class="chart-title">Allocation radar</div><div class="chart-sub">Actual versus permanent targets</div></div><span class="status" id="allocationStatus">Waiting</span></div><div class="alloc-wrap"><div class="donut" id="donut"><div class="donut-center"><strong id="donutValue">—</strong><span>live value</span></div></div><div class="alloc-list" id="allocationList"></div></div></article>
@@ -179,8 +179,10 @@
  <div class="section"><div><h2>Risk decomposition</h2><p>Derived from synced daily prices. It is descriptive, not a forecast.</p></div></div>
  <div class="grid four"><article class="card kpi"><label>Annualised return</label><strong id="annReturnReview">—</strong><small>Model period</small></article><article class="card kpi"><label>Sharpe ratio</label><strong id="sharpeReview">—</strong><small>Excess return per unit of risk</small></article><article class="card kpi"><label>Correlation to S&amp;P 500</label><strong id="corrReview">—</strong><small>SPY proxy</small></article><article class="card kpi"><label>Sortino ratio</label><strong id="worstDayReview">—</strong><small>Downside risk-adjusted</small></article></div>
 
-<div class="section"><div><h2>Calendar XIRR</h2><p>Money-weighted return isolated to each calendar year — last year's 31 Dec value becomes this year's starting cash flow. New years appear automatically as you add transactions.</p></div></div>
+<div class="section"><div><h2>Calendar XIRR</h2><p>Money-weighted return isolated to each calendar year — last year's 31 Dec value becomes this year's starting cash flow. New years appear automatically as you add transactions.</p></div><button class="btn" id="viewWrappedBtn">Year in review</button></div>
 <div class="calendar-xirr-grid" id="calendarXirrGrid"></div>
+<div class="section"><div><h2>Monthly returns</h2><p>Every month's return, colour-coded — darker means a bigger move either way. The Year column is the compound of that row's own months, not a separate calculation.</p></div></div>
+<div id="monthlyHeatmap"></div>
 
 <div class="section"><div><h2>DCA backtest</h2><p>What your monthly contributions would have compounded to in your holdings vs the benchmark indices.</p></div></div>
 <article class="card table-wrap"><table><thead><tr><th>Period</th><th>Your portfolio</th><th>Contributed</th><th>Total return</th><th>vs Nasdaq-100</th><th>vs S&amp;P 500</th></tr></thead><tbody id="dcaBacktestBody"><tr><td colspan="6"><div class="empty">Sync 1+ year of price history to run the DCA backtest.</div></td></tr></tbody></table></article>
@@ -206,6 +208,11 @@
  <div class="modal-actions"><button class="btn danger" id="resetBtn">Reset app</button><button class="btn" id="exportBtn">Export backup</button><button class="btn" id="importBtn">Import</button><input id="importFile" type="file" accept="application/json" hidden><button class="btn primary" id="saveSettings">Save settings</button></div><div class="storage-note"><strong>Storage model:</strong> your authenticated portfolio state is saved to the configured SQLite or Turso database. Browser storage is only a local working copy used during hydration and recovery. Export a backup before destructive changes.</div>
 </div></div></div>
 <div class="toast" id="toast"></div>
-<script src="/static/js/app.js?v=26.0"></script>
+<div class="wrapped-overlay" id="wrappedOverlay" hidden>
+ <button class="wrapped-close" id="wrappedClose" aria-label="Close year in review" type="button">×</button>
+ <div class="wrapped-yearnav" id="wrappedYearNav"></div>
+ <div class="wrapped-scroll" id="wrappedScroll"></div>
+</div>
+<script src="/static/js/app.js?v=26.4"></script>
 <script src="/static/password_reset.js?v=17.0" defer></script>
 </body></html>

@@ -490,3 +490,27 @@ footer{margin-top:38px;padding:20px 3px;border-top:3px solid #141414;color:#6E6B
 }
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
 @media(prefers-contrast:more){.card,.field input,.field select,.modal{border-width:3px}}
+/* Year in review */
+.wrapped-overlay{position:fixed;inset:0;z-index:300;background:var(--ink)}
+.wrapped-overlay[hidden]{display:none}
+.wrapped-scroll{height:100%;overflow-y:auto;scroll-snap-type:y mandatory}
+.wrapped-slide{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:80px 24px;scroll-snap-align:start;scroll-snap-stop:always;position:relative}
+.wrapped-eyebrow{font-family:var(--font-body);font-size:13px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;opacity:.72;margin-bottom:22px}
+.wrapped-number{font-family:var(--font-display);font-size:clamp(52px,13vw,128px);line-height:.95;margin-bottom:16px;word-break:break-word}
+.wrapped-label{font-family:var(--font-display);font-size:clamp(20px,4vw,30px);text-transform:uppercase;max-width:720px;line-height:1.25}
+.wrapped-sub{font-family:var(--font-body);font-size:16px;margin-top:20px;max-width:480px;opacity:.88;line-height:1.55}
+.wrapped-close{position:fixed;top:20px;right:20px;z-index:310;width:44px;height:44px;border:3px solid var(--paper);background:var(--ink);color:var(--paper);font-family:var(--font-display);font-size:22px;line-height:1;cursor:pointer;border-radius:0}
+.wrapped-close:hover{background:var(--paper);color:var(--ink)}
+.wrapped-yearnav{position:fixed;top:22px;left:24px;z-index:310;display:flex;align-items:center;gap:10px;font-family:var(--font-mono);font-size:13px;color:var(--paper)}
+.wrapped-yearnav button{background:none;border:2px solid var(--paper);color:var(--paper);font-family:var(--font-display);padding:6px 10px;cursor:pointer;border-radius:0}
+.wrapped-yearnav button:disabled{opacity:.3;cursor:default}
+.wrapped-scroll-hint{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);z-index:310;font-family:var(--font-body);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--paper);opacity:.6}
+@media(max-width:640px){.wrapped-slide{padding:64px 20px}}
+/* Monthly returns heatmap */
+.heatmap-scroll{overflow-x:auto;border:3px solid #141414;background:var(--panel)}
+.heatmap-table{width:100%;min-width:660px;border-collapse:collapse}
+.heatmap-table th{padding:10px 4px;text-align:center}
+.heatmap-table td{padding:11px 4px;text-align:center;font-family:var(--font-mono);font-size:11.5px;border-right:1px solid var(--hairline);border-bottom:1px solid var(--hairline)}
+.heatmap-table tr:last-child td{border-bottom:0}
+.heatmap-year{font-family:var(--font-display);font-size:13px;background:var(--panel2);text-align:left!important;padding-left:14px!important}
+.heatmap-annual{font-weight:700;border-left:3px solid #141414!important;background:var(--panel2)}
