@@ -141,7 +141,7 @@
  <div class="grid two" style="margin-top:18px"><article class="card pad"><div class="chart-title" id="nextOrderTitle">Next order</div><p class="chart-sub">Uses new money to reduce drift. It never recommends selling by default.</p><div class="action-list" id="nextOrder"></div><button class="btn" id="fillTradeBtn" style="width:100%;margin-top:12px">Fill largest suggested buy</button></article>
  <article class="card pad"><div class="chart-title">Live data engine</div><p class="chart-sub" style="line-height:1.65">Northstar searches its own instrument catalog. When you click Sync prices, it requests quotes only for the exact exchange listings in your portfolio and normalises them to EUR.</p><div class="action-list"><div class="action-row"><span>Provider</span><strong id="providerLabel">Not connected</strong></div><div class="action-row"><span>Price sync</span><strong id="refreshCadence">On demand</strong></div><div class="action-row"><span>History refresh</span><strong>Daily</strong></div></div></article></div>
  <div class="section"><div><h2>Trade history</h2><p>Delete any incorrect trade and all holdings/P&amp;L are recalculated from the beginning.</p></div></div>
- <article class="card table-wrap"><table><thead><tr><th>Date</th><th>Action</th><th>Holding</th><th>Shares</th><th>Price</th><th>Fees</th><th>Realised P&amp;L</th><th></th></tr></thead><tbody id="tradeBody"></tbody></table></article>
+ <article class="card table-wrap"><table><thead><tr><th>Date</th><th>Action</th><th>Holding</th><th>Shares</th><th>Price</th><th>Fees</th><th>Realised P&amp;L</th><th></th></tr></thead><tbody id="tradeBody"></tbody></table><div class="trade-pagination" id="tradePagination"></div></article>
 </section>
 
 <section class="page" id="lab">

@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.1.2 - 2026-09-07
+
+- **Added:** pagination on the Trade history table (7 rows per page) — was
+  rendering every transaction unbounded, which would eventually make the table
+  very long as trade history grows. Page state clamps automatically if a
+  delete leaves the current page out of range, and controls only appear once
+  there's more than one page.
+- **Fixed:** holding cards with a short, single-line name (e.g. "Rocket Lab
+  USA, Inc.") sat visually higher than cards with a longer, two-line name,
+  since the title area's height was driven entirely by the actual text.
+  `.holding-title` now reserves consistent space for two lines regardless of
+  how much the name actually wraps, so all cards in a row line up.
+
 ## 2.1.1 - 2026-09-07
 
 - **Fixed:** the DCA backtest table showed identical numbers for the 1-year,
