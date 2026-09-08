@@ -28,6 +28,19 @@
       "logo": ""
     },
     {
+      "symbol": "YDX.F",
+      "ticker": "YDX",
+      "name": "Nebius Group (A)",
+      "isin": "NL0009805522",
+      "exchangeSuffix": ".F",
+      "exchange": "Frankfurt",
+      "nativeCurrency": "EUR",
+      "issuer": "Nebius Group (A)",
+      "assetClass": "Equity",
+      "kind": "stock",
+      "logo": ""
+    },
+    {
       "symbol": "XAIX.DE",
       "ticker": "XAIX",
       "name": "Xtrackers AI and Big data ETF USD acc",
