@@ -8,7 +8,7 @@ const EUROPEAN_EXCHANGES={'.DE':'Xetra','.F':'Frankfurt','.BE':'Berlin Stock Exc
 const LEGACY_META={bcfp:{ticker:'BCFP',issuer:'UBS',name:'Nasdaq-100 UCITS ETF USD Acc',isin:'IE000SB4G4I4',ter:.13,focus:'Nasdaq-100',risk:'High'},sec0:{ticker:'SEC0',issuer:'iShares',name:'MSCI Global Semiconductors UCITS ETF',isin:'IE000I8KRLL9',ter:.35,focus:'Global semiconductors',risk:'Very high'},emsm:{ticker:'EMSM',issuer:'Invesco',name:'MSCI Emerging Markets UCITS ETF Acc',isin:'IE00B3DWVS88',ter:.09,focus:'Emerging markets',risk:'High'}};
 const TODAY=new Date().toISOString().slice(0,10), STORAGE='northstarPortfolio';
 const clone=x=>JSON.parse(JSON.stringify(x));
-const DEFAULT={version:15,profile:{name:'',goal:100000,expectedReturn:8,riskFreeRate:2,startDate:TODAY,goalYears:8,horizon:20,reviewDays:90,monthlyInvestment:600},market:{provider:'proxy',proxyUrl:'/api/market',apiKey:'',eodhdKey:'',twelveKey:'',autoRefresh:true,refreshSeconds:900,historySize:780,lastUpdated:null,lastHistorySync:null,lastError:'',lastWarning:'',lastDiagnostic:'',rateLimitedUntil:null,lastAttempt:null,lastTestAttempt:null,exchange:'EUR',dataMode:'live',priceBasis:'last'},assets:{},benchmarks:{qqq:{label:'Nasdaq-100 · EUR',symbol:'SXRV.DE',exchange:'EUR',history:[]},spy:{label:'S&P 500 · EUR',symbol:'SXR8.DE',exchange:'EUR',history:[]}},transactions:[],snapshots:[],reviews:[],ui:{chartMode:'performance',extraMonthly:100}};
+const DEFAULT={version:15,profile:{name:'',goal:100000,expectedReturn:8,riskFreeRate:2,startDate:TODAY,goalYears:8,horizon:20,reviewDays:90,monthlyInvestment:600},market:{provider:'yahoo',proxyUrl:'/api/market',autoRefresh:true,refreshSeconds:900,historySize:780,lastUpdated:null,lastHistorySync:null,lastError:'',lastWarning:'',lastDiagnostic:'',rateLimitedUntil:null,lastAttempt:null,lastTestAttempt:null,exchange:'EUR',dataMode:'live',priceBasis:'last'},assets:{},archivedAssets:{},benchmarks:{qqq:{label:'Nasdaq-100 · EUR',symbol:'SXRV.DE',exchange:'EUR',history:[]},spy:{label:'S&P 500 · EUR',symbol:'SXR8.DE',exchange:'EUR',history:[]}},transactions:[],snapshots:[],reviews:[],ui:{chartMode:'performance',extraMonthly:100}};
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 function merge(base,incoming){if(!incoming)return clone(base);const out=clone(base);for(const [k,v] of Object.entries(incoming)){if(v&&typeof v==='object'&&!Array.isArray(v)&&out[k]&&typeof out[k]==='object'&&!Array.isArray(out[k]))out[k]=merge(out[k],v);else out[k]=v}return out}
 const storage=(()=>{try{const k='__northstar_test__';window.localStorage.setItem(k,'1');window.localStorage.removeItem(k);return window.localStorage}catch(e){let mem={};return{getItem:k=>mem[k]??null,setItem:(k,v)=>mem[k]=String(v),removeItem:k=>delete mem[k],clear:()=>mem={}}}})();
@@ -18,7 +18,7 @@ let syncing=false,timer=null;
 function assetIdForSymbol(symbol){return `etf_${String(symbol).toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'')}`}
 function exchangeName(symbol){const upper=String(symbol||'').toUpperCase();const suffix=Object.keys(EUROPEAN_EXCHANGES).sort((a,b)=>b.length-a.length).find(x=>upper.endsWith(x));return suffix?EUROPEAN_EXCHANGES[suffix]:'European exchange'}
 function esc(value){return String(value??'').replace(/[&<>'"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]))}
-function rebuildMeta(){META={};Object.entries(state.assets||{}).forEach(([id,a],index)=>{const legacy=LEGACY_META[id]||{},cat=CATALOG_BY_SYMBOL[String(a.symbol||'').toUpperCase()]||{};META[id]={ticker:a.ticker||cat.ticker||legacy.ticker||String(a.symbol||id).split('.')[0].toUpperCase(),issuer:cat.issuer||a.issuer||legacy.issuer||a.exchange||exchangeName(a.symbol),name:cat.name||a.name||legacy.name||a.symbol||id,isin:cat.isin||a.isin||legacy.isin||'',logo:cat.logo||'',kind:cat.kind||a.kind||'',ter:Number.isFinite(Number(a.ter))?Number(a.ter):Number(legacy.ter)||0,color:a.color||ASSET_COLORS[index%ASSET_COLORS.length],focus:a.focus||legacy.focus||a.exchange||exchangeName(a.symbol),risk:a.risk||legacy.risk||'Market'}})}
+function rebuildMeta(){META={};const everyAsset={...state.archivedAssets,...state.assets};Object.entries(everyAsset||{}).forEach(([id,a],index)=>{const legacy=LEGACY_META[id]||{},cat=CATALOG_BY_SYMBOL[String(a.symbol||'').toUpperCase()]||{};META[id]={ticker:a.ticker||cat.ticker||legacy.ticker||String(a.symbol||id).split('.')[0].toUpperCase(),issuer:cat.issuer||a.issuer||legacy.issuer||a.exchange||exchangeName(a.symbol),name:cat.name||a.name||legacy.name||a.symbol||id,isin:cat.isin||a.isin||legacy.isin||'',logo:cat.logo||'',kind:cat.kind||a.kind||'',ter:Number.isFinite(Number(a.ter))?Number(a.ter):Number(legacy.ter)||0,color:a.color||ASSET_COLORS[index%ASSET_COLORS.length],focus:a.focus||legacy.focus||a.exchange||exchangeName(a.symbol),risk:a.risk||legacy.risk||'Market',archived:!state.assets[id]}})}
 async function loadCatalog(){try{const data=await apiRequest('/api/market/catalog');CATALOG_BY_SYMBOL=Object.fromEntries((data.instruments||[]).map(item=>[String(item.symbol||'').toUpperCase(),item]));rebuildMeta();renderAll()}catch{/* catalog is an enhancement; the app works fine without it */}}
 function syncMonthlyFromTargets(){
  const ids=Object.keys(state.assets||{});
@@ -93,7 +93,7 @@ function currentAllocationPercentage(id){
  const total=totalValue();
  return total>0&&state.assets[id]?replay(id).value/total*100:null;
 }
-function normalizeDynamicState(){const originalVersion=Number(state.version||0);state.version=15;state.profile=merge(DEFAULT.profile,state.profile||{});state.market=merge(DEFAULT.market,state.market||{});state.assets=state.assets&&typeof state.assets==='object'?state.assets:{};state.transactions=Array.isArray(state.transactions)?state.transactions:[];state.benchmarks=merge(DEFAULT.benchmarks,state.benchmarks||{});state.ui=merge(DEFAULT.ui,state.ui||{});const ids=Object.keys(state.assets);const untouchedLegacy=ids.length===3&&['bcfp','sec0','emsm'].every(id=>ids.includes(id))&&!state.transactions.length&&ids.every(id=>!Number(state.assets[id]?.baselineShares)&&!Number(state.assets[id]?.baselineRealizedPnl));for(const [id,a] of Object.entries(state.assets)){const legacy=LEGACY_META[id]||{};a.symbol=String(a.symbol||`${legacy.ticker||id}.DE`).trim().toUpperCase();a.ticker=a.ticker||legacy.ticker||a.symbol.split('.')[0];a.name=a.name||legacy.name||a.symbol;a.issuer=a.issuer||legacy.issuer||exchangeName(a.symbol);a.exchange=a.exchange||exchangeName(a.symbol);a.currency=a.currency||'EUR';a.target=Math.max(0,Number(a.target)||0);a.monthly=Math.max(0,Number(a.monthly)||0);a.baselineShares=Math.max(0,Number(a.baselineShares)||0);a.baselineAvgPrice=Math.max(0,Number(a.baselineAvgPrice)||0);a.baselineRealizedPnl=Number(a.baselineRealizedPnl)||0;a.currentPrice=Number(a.currentPrice)||null;a.quote=a.quote||null;a.history=Array.isArray(a.history)?a.history:[];a.monthEndPrices=a.monthEndPrices&&typeof a.monthEndPrices==='object'?a.monthEndPrices:{}}state.market.proxyUrl=state.market.proxyUrl||'/api/market';state.profile.monthlyInvestment=Math.max(0,Number(state.profile.monthlyInvestment)||Object.values(state.assets).reduce((n,a)=>n+(Number(a.monthly)||0),0)||600);if(Object.keys(state.assets).length){const total=Object.values(state.assets).reduce((n,a)=>n+(Number(a.target)||0),0);if(!Number.isFinite(total)||total<=0)normalizeTargets()}rebuildMeta()}
+function normalizeDynamicState(){const originalVersion=Number(state.version||0);state.version=15;state.profile=merge(DEFAULT.profile,state.profile||{});state.market=merge(DEFAULT.market,state.market||{});state.assets=state.assets&&typeof state.assets==='object'?state.assets:{};state.archivedAssets=state.archivedAssets&&typeof state.archivedAssets==='object'?state.archivedAssets:{};state.transactions=Array.isArray(state.transactions)?state.transactions:[];state.benchmarks=merge(DEFAULT.benchmarks,state.benchmarks||{});state.ui=merge(DEFAULT.ui,state.ui||{});const ids=Object.keys(state.assets);const untouchedLegacy=ids.length===3&&['bcfp','sec0','emsm'].every(id=>ids.includes(id))&&!state.transactions.length&&ids.every(id=>!Number(state.assets[id]?.baselineShares)&&!Number(state.assets[id]?.baselineRealizedPnl));for(const [id,a] of Object.entries(state.assets)){const legacy=LEGACY_META[id]||{};a.symbol=String(a.symbol||`${legacy.ticker||id}.DE`).trim().toUpperCase();a.ticker=a.ticker||legacy.ticker||a.symbol.split('.')[0];a.name=a.name||legacy.name||a.symbol;a.issuer=a.issuer||legacy.issuer||exchangeName(a.symbol);a.exchange=a.exchange||exchangeName(a.symbol);a.currency=a.currency||'EUR';a.target=Math.max(0,Number(a.target)||0);a.monthly=Math.max(0,Number(a.monthly)||0);a.baselineShares=Math.max(0,Number(a.baselineShares)||0);a.baselineAvgPrice=Math.max(0,Number(a.baselineAvgPrice)||0);a.baselineRealizedPnl=Number(a.baselineRealizedPnl)||0;a.currentPrice=Number(a.currentPrice)||null;a.quote=a.quote||null;a.history=Array.isArray(a.history)?a.history:[];a.monthEndPrices=a.monthEndPrices&&typeof a.monthEndPrices==='object'?a.monthEndPrices:{}}state.market.proxyUrl=state.market.proxyUrl||'/api/market';state.profile.monthlyInvestment=Math.max(0,Number(state.profile.monthlyInvestment)||Object.values(state.assets).reduce((n,a)=>n+(Number(a.monthly)||0),0)||600);if(Object.keys(state.assets).length){const total=Object.values(state.assets).reduce((n,a)=>n+(Number(a.target)||0),0);if(!Number.isFinite(total)||total<=0)normalizeTargets()}rebuildMeta()}
 const previousVersion=Number(state.version||0);normalizeDynamicState();if(previousVersion<15)storage.setItem(STORAGE,JSON.stringify(state));
 function cloudStatus(message,kind=''){const el=$('#cloudSyncStatus');if(!el)return;el.textContent=message;el.className=`sync-chip ${kind}`.trim()}
 async function apiRequest(path,options={}){const res=await fetch(path,{credentials:'same-origin',headers:{'Content-Type':'application/json',Accept:'application/json',...(options.headers||{})},...options});let data={};try{data=await res.json()}catch{}if(!res.ok){const err=new Error(data.error||`Request failed (${res.status})`);err.status=res.status;throw err}return data}
@@ -108,15 +108,15 @@ function pct(n,d=1){if(n==null||!Number.isFinite(Number(n)))return '—';return 
 function dateFmt(s){if(!s)return '—';return new Date(s+'T12:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})}
 function quoteTime(s){if(!s)return 'No quote time';const d=new Date(s);return Number.isNaN(d.getTime())?'No quote time':d.toLocaleString('en-GB',{weekday:'short',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/Berlin'})}
 function basisName(){return 'EUR-normalised market price'}
-function quoteState(id){const q=state.assets[id].quote||{};const closed=q.marketOpen===false||q.marketState==='CLOSED';return `${closed?'Market closed':'Market quote'} · ${quoteTime(q.datetime)}`}
-function quoteDetails(id){const q=state.assets[id]?.quote||{},parts=[];if(Number(q.lastTrade))parts.push(`EUR ${fmt(q.lastTrade,4)}`);if(q.exchange)parts.push(q.exchange);if(q.nativeCurrency&&q.nativeCurrency!=='EUR')parts.push(`converted from ${q.nativeCurrency}`);if(q.source)parts.push(q.source);return parts.join(' · ')||'Waiting for market quote'}
+function quoteState(id){const q=assetById(id)?.quote||{};const closed=q.marketOpen===false||q.marketState==='CLOSED';return `${closed?'Market closed':'Market quote'} · ${quoteTime(q.datetime)}`}
+function quoteDetails(id){const q=assetById(id)?.quote||{},parts=[];if(Number(q.lastTrade))parts.push(`EUR ${fmt(q.lastTrade,4)}`);if(q.exchange)parts.push(q.exchange);if(q.nativeCurrency&&q.nativeCurrency!=='EUR')parts.push(`converted from ${q.nativeCurrency}`);if(q.source)parts.push(q.source);return parts.join(' · ')||'Waiting for market quote'}
 
 
 function id(){return Math.random().toString(36).slice(2)+Date.now().toString(36)}
 function toast(t,type='success'){const el=$('#toast');if(!el)return;el.textContent=String(t||'').slice(0,180);el.className=`toast ${type==='warn'?'warn':type==='error'?'error':''}`;requestAnimationFrame(()=>el.classList.add('show'));clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove('show'),type==='warn'?4200:2600)}
 function daysBetween(a,b){return Math.max(0,(new Date(b)-new Date(a))/86400000)}
 function replay(assetId){
- const a=state.assets[assetId]||{};
+ const a=assetById(assetId)||{};
  let shares=Number(a.baselineShares)||0,avg=Number(a.baselineAvgPrice)||0,realized=Number(a.baselineRealizedPnl)||0;
  const txs=state.transactions.filter(t=>t.asset===assetId).sort((x,y)=>new Date(x.date)-new Date(y.date)||Number(x.createdAt||0)-Number(y.createdAt||0));
  for(const t of txs){
@@ -138,8 +138,16 @@ function replay(assetId){
  const unreal=marketPrice?value-cost:0,day=marketPrice&&prev?shares*(marketPrice-prev):null;
  return{shares,avg,realized,price:marketPrice,valuationPrice,prev,value,cost,unreal,unrealKnown:shares===0||marketPrice!==null,day,estimated:shares>0&&marketPrice===null}
 }
-function transactionLedger(){const result={};for(const assetId of Object.keys(state.assets)){const a=state.assets[assetId];let shares=Number(a.baselineShares)||0,avg=Number(a.baselineAvgPrice)||0;const txs=state.transactions.filter(t=>t.asset===assetId).sort((x,y)=>new Date(x.date)-new Date(y.date)||Number(x.createdAt||0)-Number(y.createdAt||0));for(const t of txs){const q=Number(t.shares)||0,p=Number(t.price)||0,f=Number(t.fee)||0;if(t.type==='buy'){const old=shares*avg;shares+=q;avg=shares?(old+q*p+f)/shares:0;result[t.id]={realized:null,realizedPct:null}}else{const sold=Math.min(q,shares),basis=sold*avg,autoPnl=(p-avg)*sold-f,pnl=Number.isFinite(Number(t.realizedPnlOverride))?Number(t.realizedPnlOverride):autoPnl;result[t.id]={realized:pnl,realizedPct:basis?pnl/basis*100:null,overridden:Number.isFinite(Number(t.realizedPnlOverride))};shares-=sold;if(shares<1e-10){shares=0;avg=0}}}}return result}
-function positions(){return Object.fromEntries(Object.keys(state.assets).map(k=>[k,replay(k)]))}
+function transactionLedger(){const result={};const ids=new Set([...Object.keys(state.assets),...Object.keys(state.archivedAssets||{})]);for(const assetId of ids){const a=assetById(assetId);let shares=Number(a.baselineShares)||0,avg=Number(a.baselineAvgPrice)||0;const txs=state.transactions.filter(t=>t.asset===assetId).sort((x,y)=>new Date(x.date)-new Date(y.date)||Number(x.createdAt||0)-Number(y.createdAt||0));for(const t of txs){const q=Number(t.shares)||0,p=Number(t.price)||0,f=Number(t.fee)||0;if(t.type==='buy'){const old=shares*avg;shares+=q;avg=shares?(old+q*p+f)/shares:0;result[t.id]={realized:null,realizedPct:null}}else{const sold=Math.min(q,shares),basis=sold*avg,autoPnl=(p-avg)*sold-f,pnl=Number.isFinite(Number(t.realizedPnlOverride))?Number(t.realizedPnlOverride):autoPnl;result[t.id]={realized:pnl,realizedPct:basis?pnl/basis*100:null,overridden:Number.isFinite(Number(t.realizedPnlOverride))};shares-=sold;if(shares<1e-10){shares=0;avg=0}}}}return result}
+// Every holding you still own, archived or not — archiving retires a holding from
+// the target allocation, it does not hand back the shares. The XIRR and calendar
+// cash-flow builders already count archived holdings, so value and P&L must too,
+// or archiving a holding you still own craters every total.
+function positions(){return Object.fromEntries(allAssetIds().map(k=>[k,replay(k)]))}
+// Allocation, drift and the donut are about the plan you are still managing, so
+// they weigh against the active subtotal rather than the whole portfolio.
+function activePositions(){return Object.fromEntries(Object.keys(state.assets).map(k=>[k,replay(k)]))}
+function activeValue(){return Object.values(activePositions()).reduce((s,p)=>s+p.value,0)}
 function portfolioValuation(){
  const all=Object.values(positions()),open=all.filter(p=>p.shares>1e-10),unpriced=open.filter(p=>!p.price);
  return{
@@ -157,7 +165,40 @@ function totalValue(){return Object.values(positions()).reduce((s,p)=>s+p.value,
 function totalRealized(){return Object.values(positions()).reduce((s,p)=>s+p.realized,0)}
 function totalUnreal(){return Object.values(positions()).reduce((s,p)=>s+p.unreal,0)}
 function totalDay(){const vals=Object.values(positions()).map(p=>p.day);return vals.some(v=>v!=null)?vals.reduce((s,v)=>s+(v||0),0):null}
-function grossInvested(){let n=0;for(const id of Object.keys(state.assets))n+=(Number(state.assets[id].baselineShares)||0)*(Number(state.assets[id].baselineAvgPrice)||0);for(const t of state.transactions)if(t.type==='buy')n+=(Number(t.shares)||0)*(Number(t.price)||0)+(Number(t.fee)||0);return n}
+function grossInvested(){let n=0;const ids=new Set([...Object.keys(state.assets),...Object.keys(state.archivedAssets||{})]);for(const id of ids){const a=assetById(id);n+=(Number(a.baselineShares)||0)*(Number(a.baselineAvgPrice)||0)}for(const t of state.transactions)if(t.type==='buy')n+=(Number(t.shares)||0)*(Number(t.price)||0)+(Number(t.fee)||0);return n}
+// Net capital that actually came from outside the portfolio — as opposed to grossInvested(),
+// which sums every buy ever made regardless of whether it was funded by fresh money or by
+// selling something else first. Selling a position and reinvesting the proceeds elsewhere is
+// capital recycling, not a second contribution, and should read that way here.
+function netCapitalLedger(){
+ const events=[];
+ const ids=new Set([...Object.keys(state.assets),...Object.keys(state.archivedAssets||{})]);
+ for(const id of ids){
+  const a=assetById(id),baseShares=Number(a.baselineShares)||0;
+  if(baseShares>0){const amount=baseShares*(Number(a.baselineAvgPrice)||0);if(amount>0)events.push({date:a.baselineDate||'0000-00-00',type:'buy',amount})}
+ }
+ for(const t of state.transactions){
+  const shares=Number(t.shares)||0,price=Number(t.price)||0,fee=Number(t.fee)||0;
+  if(t.type==='buy'){const amount=shares*price+fee;if(amount>0)events.push({date:t.date,type:'buy',amount})}
+  else{const amount=shares*price-fee;if(amount>0)events.push({date:t.date,type:'sell',amount})}
+ }
+ events.sort((x,y)=>x.date.localeCompare(y.date));
+ let contributed=0,cash=0;
+ for(const e of events){
+  if(e.type==='buy'){
+   const fromCash=Math.min(cash,e.amount);
+   cash-=fromCash;
+   contributed+=e.amount-fromCash;
+  }else{
+   cash+=e.amount;
+  }
+ }
+ // `cash` is what came out of the portfolio and was never put back to work.
+ // whatIfBacktest() keeps the same pool and counts it in the benchmark's value,
+ // so any comparison against the real portfolio has to account for it too.
+ return{contributed,cash};
+}
+function netContributedCapital(){return netCapitalLedger().contributed}
 // Two aligned series — real portfolio value (via the same point-in-time reconstruction
 // used by Calendar XIRR) and cumulative money contributed — sampled at a sensible
 // interval (daily for short histories, weekly/every-3-days for longer ones, so a
@@ -166,7 +207,7 @@ function grossInvested(){let n=0;for(const id of Object.keys(state.assets))n+=(N
 // by array index, not by date value.
 function compoundingGapSeries(){
  const dates=state.transactions.map(t=>t.date);
- for(const a of Object.values(state.assets))if(a.baselineDate)dates.push(a.baselineDate);
+ for(const a of allAssets())if(a.baselineDate)dates.push(a.baselineDate);
  if(!dates.length)return{value:[],invested:[]};
  const minDate=[...dates].sort()[0],today=new Date().toISOString().slice(0,10);
  const points=[];
@@ -174,9 +215,17 @@ function compoundingGapSeries(){
  const totalDays=Math.max(1,(end-cursor)/(1000*60*60*24)),stepDays=totalDays>730?7:totalDays>180?3:1;
  while(cursor<=end){points.push(cursor.toISOString().slice(0,10));cursor.setUTCDate(cursor.getUTCDate()+stepDays)}
  if(points.at(-1)!==today)points.push(today);
+ // Net cash put in, not the sum of every buy ever made: a sell takes money back
+ // out of the portfolio, so the invested line has to come down by the proceeds.
+ // Otherwise the chart claims a loss the moment you sell anything, because the
+ // value line drops by the sale while the invested line keeps climbing.
  const sortedBuys=[];
- for(const t of state.transactions)if(t.type==='buy')sortedBuys.push({date:t.date,amount:(Number(t.shares)||0)*(Number(t.price)||0)+(Number(t.fee)||0)});
- for(const a of Object.values(state.assets)){
+ for(const t of state.transactions){
+  const shares=Number(t.shares)||0,price=Number(t.price)||0,fee=Number(t.fee)||0;
+  if(t.type==='buy')sortedBuys.push({date:t.date,amount:shares*price+fee});
+  else sortedBuys.push({date:t.date,amount:-(shares*price-fee)});
+ }
+ for(const a of allAssets()){
   const baseShares=Number(a.baselineShares)||0;
   if(baseShares>0&&a.baselineDate)sortedBuys.push({date:a.baselineDate,amount:baseShares*(Number(a.baselineAvgPrice)||0)});
  }
@@ -195,7 +244,7 @@ function compoundingGapSeries(){
 function totalPnl(){return totalRealized()+totalUnreal()}
 function actualMonthlyAvg(lookback=3){const byMonth={};for(const t of state.transactions.filter(t=>t.type==='buy')){const m=t.date.slice(0,7);byMonth[m]=(byMonth[m]||0)+t.shares*t.price+(t.fee||0)}const now=new Date();let total=0,count=0;for(let i=1;i<=lookback;i++){const d=new Date(now);d.setMonth(d.getMonth()-i);const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;if(byMonth[key]){total+=byMonth[key];count++}}return count?total/count:0}
 function monthlyTotal(){const allocated=Object.values(state.assets).reduce((s,a)=>s+(Number(a.monthly)||0),0);if(allocated>0)return allocated;const avg=actualMonthlyAvg(3);if(avg>0)return avg;return Math.max(0,Number(state.profile.monthlyInvestment)||600)}
-function weight(id){const tv=totalValue();return tv?replay(id).value/tv:state.assets[id].target}
+function weight(id){const tv=activeValue();return tv?replay(id).value/tv:(Number(state.assets[id]?.target)||0)}
 function futureValue(start,monthly,rate,years){const r=rate/100/12,n=years*12;return r?start*Math.pow(1+r,n)+monthly*(Math.pow(1+r,n)-1)/r:start+monthly*n}
 function monthsToGoal(goal,start,monthly,rate){
  goal=Math.max(0,Number(goal)||0);start=Math.max(0,Number(start)||0);monthly=Math.max(0,Number(monthly)||0);rate=Number(rate)||0;
@@ -266,7 +315,7 @@ function xirr(rawFlows){
 // open positions with a live synced price — an unsynced cost-basis estimate
 // would make XIRR misleadingly show ~0%).
 function assetXirrCashFlows(id,includeCurrentValue=true){
- const a=state.assets[id];if(!a)return[];
+ const a=assetById(id);if(!a)return[];
  const flows=[];
  const baseShares=Number(a.baselineShares)||0;
  if(baseShares>0&&a.baselineDate)flows.push({date:a.baselineDate,amount:-(baseShares*(Number(a.baselineAvgPrice)||0))});
@@ -282,7 +331,8 @@ function assetXirrCashFlows(id,includeCurrentValue=true){
 function assetXirr(id){return xirr(assetXirrCashFlows(id))}
 function portfolioXirr(){
  const flows=[];
- for(const id of Object.keys(state.assets))flows.push(...assetXirrCashFlows(id,false));
+ const ids=new Set([...Object.keys(state.assets),...Object.keys(state.archivedAssets||{})]);
+ for(const id of ids)flows.push(...assetXirrCashFlows(id,false));
  if(state.market.lastUpdated){const tv=totalValue();if(tv>0)flows.push({date:new Date().toISOString().slice(0,10),amount:tv})}
  return xirr(flows);
 }
@@ -294,8 +344,11 @@ function portfolioXirr(){
 // year-end value does double duty: it's one year's ending flow and the next
 // year's starting flow, which is what correctly isolates each year rather
 // than mixing in performance from before it.
+function assetById(id){return state.assets[id]||state.archivedAssets?.[id]}
+function allAssetIds(){return [...new Set([...Object.keys(state.assets),...Object.keys(state.archivedAssets||{})])]}
+function allAssets(){return allAssetIds().map(id=>assetById(id)).filter(Boolean)}
 function sharesAsOfDate(id,dateStr){
- const a=state.assets[id];if(!a)return 0;
+ const a=assetById(id);if(!a)return 0;
  let shares=0;
  const baseShares=Number(a.baselineShares)||0;
  if(baseShares>0&&(!a.baselineDate||a.baselineDate<=dateStr))shares=baseShares;
@@ -311,7 +364,7 @@ function sharesAsOfDate(id,dateStr){
  return Math.max(0,shares);
 }
 function priceAsOfDate(id,dateStr){
- const a=state.assets[id];
+ const a=assetById(id);
  if(dateStr.length===10){
   const year=Number(dateStr.slice(0,4)),month=Number(dateStr.slice(5,7));
   if(Number.isFinite(year)&&Number.isFinite(month)&&dateStr===lastDayOfMonth(year,month)){
@@ -326,7 +379,8 @@ function priceAsOfDate(id,dateStr){
 }
 function portfolioValueAsOfDate(dateStr){
  let total=0;
- for(const id of Object.keys(state.assets)){
+ const ids=new Set([...Object.keys(state.assets),...Object.keys(state.archivedAssets||{})]);
+ for(const id of ids){
   const shares=sharesAsOfDate(id,dateStr);
   if(shares<=1e-10)continue;
   const price=priceAsOfDate(id,dateStr);
@@ -337,7 +391,7 @@ function portfolioValueAsOfDate(dateStr){
 }
 function trackedCalendarYears(){
  const dates=state.transactions.map(t=>t.date);
- for(const a of Object.values(state.assets))if(a.baselineDate)dates.push(a.baselineDate);
+ for(const a of allAssets())if(a.baselineDate)dates.push(a.baselineDate);
  if(!dates.length)return [];
  const minYear=Math.min(...dates.map(d=>Number(String(d).slice(0,4)))),maxYear=new Date().getFullYear();
  const years=[];
@@ -346,11 +400,12 @@ function trackedCalendarYears(){
 }
 function calendarYearCashFlows(year){
  const yearStart=`${year}-01-01`,yearEnd=`${year}-12-31`,today=new Date().toISOString().slice(0,10),isCurrentYear=String(year)===today.slice(0,4);
- const startValue=portfolioValueAsOfDate(`${year-1}-12-31`);
+ const priorYearEnd=`${year-1}-12-31`;
+ const startValue=portfolioValueAsOfDate(priorYearEnd);
  if(startValue==null)return{flows:null,reason:'Not enough synced history at the start of this year'};
  const flows=[];
- if(startValue>0)flows.push({date:yearStart,amount:-startValue});
- for(const a of Object.values(state.assets)){
+ if(startValue>0)flows.push({date:priorYearEnd,amount:-startValue});
+ for(const a of allAssets()){
   const baseShares=Number(a.baselineShares)||0;
   if(baseShares>0&&a.baselineDate&&a.baselineDate>=yearStart&&a.baselineDate<=yearEnd)flows.push({date:a.baselineDate,amount:-(baseShares*(Number(a.baselineAvgPrice)||0))});
  }
@@ -385,11 +440,15 @@ function lastDayOfMonth(year,month){return new Date(Date.UTC(month===12?year+1:y
 function monthCashFlows(year,month){
  const monthStart=`${year}-${String(month).padStart(2,'0')}-01`,monthEnd=lastDayOfMonth(year,month),today=new Date().toISOString().slice(0,10),isCurrentMonth=today.slice(0,7)===monthStart.slice(0,7);
  const priorDay=new Date(monthStart+'T00:00:00Z');priorDay.setUTCDate(priorDay.getUTCDate()-1);
- const startValue=portfolioValueAsOfDate(priorDay.toISOString().slice(0,10));
+ const priorDayStr=priorDay.toISOString().slice(0,10);
+ const startValue=portfolioValueAsOfDate(priorDayStr);
  if(startValue==null)return{flows:null};
  const flows=[];
- if(startValue>0)flows.push({date:monthStart,amount:-startValue});
- for(const a of Object.values(state.assets)){
+ // Dated on the day it was actually measured (the prior month's last close), not
+ // the 1st — otherwise the period is one day shorter than the price movement it
+ // covers, which matters a lot once the rate is scaled back down to one month.
+ if(startValue>0)flows.push({date:priorDayStr,amount:-startValue});
+ for(const a of allAssets()){
   const baseShares=Number(a.baselineShares)||0;
   if(baseShares>0&&a.baselineDate&&a.baselineDate>=monthStart&&a.baselineDate<=monthEnd)flows.push({date:a.baselineDate,amount:-(baseShares*(Number(a.baselineAvgPrice)||0))});
  }
@@ -411,9 +470,17 @@ function monthCashFlows(year,month){
 }
 function monthlyReturn(year,month){
  const cf=monthCashFlows(year,month);
- if(!cf.flows)return null;
+ if(!cf.flows||cf.flows.length<2)return null;
  const annualised=xirr(cf.flows);
- return annualised==null?null:Math.pow(1+annualised,1/12)-1;
+ if(annualised==null)return null;
+ // De-annualise over the span the cash flows actually cover, not a flat 1/12.
+ // A month you only entered on the 5th covers 26 days, and stretching that to a
+ // full month invents return that never happened — the first month of tracking
+ // otherwise always reads high. This also keeps 28- and 31-day months honest.
+ const days=cf.flows.map(f=>daysSinceEpoch(f.date));
+ const spanDays=Math.max(...days)-Math.min(...days);
+ if(!(spanDays>0))return null;
+ return Math.pow(1+annualised,spanDays/365)-1;
 }
 // Year x Month grid of monthly returns for the heatmap. The annual figure per row is
 // the compound of that row's own monthly cells (not calendarXirr, which is a different,
@@ -474,10 +541,10 @@ function doNothingComparison(year){
   baselineDate=firstBuy.date;
  }
  let total=0;
- for(const id of Object.keys(state.assets)){
+ for(const id of allAssetIds()){
   const shares=sharesAsOfDate(id,baselineDate);
   if(shares<=1e-10)continue;
-  const price=isCurrentYear?(Number(state.assets[id].currentPrice)||null):priceAsOfDate(id,endDate);
+  const price=isCurrentYear?(Number(assetById(id)?.currentPrice)||null):priceAsOfDate(id,endDate);
   if(price==null)return null;
   total+=shares*price;
  }
@@ -496,7 +563,7 @@ function yearInReviewData(year){
   totalFees:fees,
   longestStreak:streak,
   frozenValue:frozen?frozen.frozenValue:null,
-  contributed:(cf.flows||[]).filter(f=>f.amount<0&&f.date!==`${year}-01-01`).reduce((s,f)=>s-f.amount,0),
+  contributed:(cf.flows||[]).filter(f=>f.amount<0&&f.date>=`${year}-01-01`).reduce((s,f)=>s-f.amount,0),
  };
 }
 const MONTH_NAMES=['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -517,7 +584,7 @@ function renderYearInReview(year){
  if(d.bestMonth&&sameMonth){
   slides.push(wrappedSlide({bg:'#1B8A4C',fg:'#FFFFFF',eyebrow:'Your only month with a verdict',number:`${d.bestMonth.ret>=0?'+':''}${(d.bestMonth.ret*100).toFixed(1)}%`,label:MONTH_NAMES[d.bestMonth.month-1],sub:'More months will show up here as the year goes on.'}));
  }else{
-  if(d.bestMonth)slides.push(wrappedSlide({bg:'#1B8A4C',fg:'#FFFFFF',eyebrow:'Your best month',number:`+${(d.bestMonth.ret*100).toFixed(1)}%`,label:MONTH_NAMES[d.bestMonth.month-1]}));
+  if(d.bestMonth)slides.push(wrappedSlide({bg:d.bestMonth.ret>=0?'#1B8A4C':'#E0362C',fg:'#FFFFFF',eyebrow:'Your best month',number:`${d.bestMonth.ret>=0?'+':''}${(d.bestMonth.ret*100).toFixed(1)}%`,label:MONTH_NAMES[d.bestMonth.month-1]}));
   if(d.worstMonth)slides.push(wrappedSlide({bg:'#E0362C',fg:'#FFFFFF',eyebrow:'Your toughest month',number:`${(d.worstMonth.ret*100).toFixed(1)}%`,label:MONTH_NAMES[d.worstMonth.month-1],sub:'Every investor has one of these. It only matters what you did after.'}));
  }
  if(d.biggestContribution){
@@ -563,10 +630,27 @@ $('#wrappedYearNav')?.addEventListener('click',e=>{
  renderWrappedYearNav(wrappedYear);
 });
 function alignSeries(seriesMap){const ids=Object.keys(seriesMap);if(!ids.length||ids.some(k=>!seriesMap[k]?.length))return [];let common=new Set(seriesMap[ids[0]].map(x=>x.date));for(const id of ids.slice(1))common=new Set([...common].filter(d=>seriesMap[id].some(x=>x.date===d)));return [...common].sort().map(date=>({date,...Object.fromEntries(ids.map(id=>[id,seriesMap[id].find(x=>x.date===date).close]))}))}
-function returnsFromPrices(rows,keys,weights){const out=[];for(let i=1;i<rows.length;i++){let r=0,valid=true;for(const k of keys){const a=rows[i-1][k],b=rows[i][k];if(!a||!b){valid=false;break}r+=weights[k]*(b/a-1)}if(valid)out.push({date:rows[i].date,r})}return out}
+// Carries the calendar distance to the previous row. The aligned series can jump
+// months when a holding stops trading (a suspension, or a listing that only starts
+// part-way through), and a multi-month move must not be mistaken for a daily one.
+function returnsFromPrices(rows,keys,weights){const out=[];for(let i=1;i<rows.length;i++){let r=0,valid=true;for(const k of keys){const a=rows[i-1][k],b=rows[i][k];if(!a||!b){valid=false;break}r+=weights[k]*(b/a-1)}if(valid)out.push({date:rows[i].date,r,days:Math.round((new Date(rows[i].date+'T00:00:00Z')-new Date(rows[i-1].date+'T00:00:00Z'))/86400000)})}return out}
 function mean(a){return a.length?a.reduce((s,x)=>s+x,0)/a.length:0}function stdev(a){if(a.length<2)return null;const m=mean(a);return Math.sqrt(a.reduce((s,x)=>s+(x-m)**2,0)/(a.length-1))}function covariance(a,b){const n=Math.min(a.length,b.length);if(n<2)return null;const aa=a.slice(-n),bb=b.slice(-n),ma=mean(aa),mb=mean(bb);return aa.reduce((s,x,i)=>s+(x-ma)*(bb[i]-mb),0)/(n-1)}function correlation(a,b){const c=covariance(a,b),sa=stdev(a),sb=stdev(b);return c!=null&&sa&&sb?c/(sa*sb):null}
-function riskMetrics(){const assetHist=Object.fromEntries(Object.keys(state.assets).map(id=>[id,state.assets[id].history||[]]));const rows=alignSeries(assetHist);if(rows.length<25)return null;const w=Object.fromEntries(Object.keys(state.assets).map(id=>[id,weight(id)])),rets=returnsFromPrices(rows,Object.keys(state.assets),w),arr=rets.map(x=>x.r);if(arr.length<20)return null;const vol=stdev(arr)*Math.sqrt(252)*100;let curve=1,peak=1,maxDD=0;for(const r of arr){curve*=1+r;peak=Math.max(peak,curve);maxDD=Math.min(maxDD,curve/peak-1)}const years=arr.length/252,ann=(Math.pow(curve,1/years)-1)*100,mom=arr.slice(-21).reduce((v,r)=>v*(1+r),1)-1,worst=Math.min(...arr)*100;let beta=null,corr=null;const q=state.benchmarks.qqq.history||[],s=state.benchmarks.spy.history||[];
- const qMap=new Map(q.map((x,i)=>i?[x.date,x.close/q[i-1].close-1]:[x.date,null])),sMap=new Map(s.map((x,i)=>i?[x.date,x.close/s[i-1].close-1]:[x.date,null]));const pa=[],qa=[],sa=[];for(const x of rets){if(qMap.get(x.date)!=null){pa.push(x.r);qa.push(qMap.get(x.date))}if(sMap.get(x.date)!=null)sa.push([x.r,sMap.get(x.date)])}if(pa.length>20){const v=stdev(qa);beta=v?covariance(pa,qa)/(v*v):null}if(sa.length>20)corr=correlation(sa.map(x=>x[0]),sa.map(x=>x[1]));const sharpe=vol? (ann-state.profile.riskFreeRate)/vol:null;const sortino=sortinoRatio(arr,state.profile.riskFreeRate);const calmar=maxDD!==0?ann/Math.abs(maxDD*100):null;return{vol,maxDD:maxDD*100,ann,mom:mom*100,worst,beta,corr,sharpe,sortino,calmar,returns:rets,curve}}
+function riskMetrics(){const assetHist=Object.fromEntries(Object.keys(state.assets).map(id=>[id,state.assets[id].history||[]]));const rows=alignSeries(assetHist);if(rows.length<25)return null;const w=Object.fromEntries(Object.keys(state.assets).map(id=>[id,weight(id)])),rets=returnsFromPrices(rows,Object.keys(state.assets),w);if(rets.length<20)return null;
+ // Volatility, Sortino, beta, correlation and worst-day are DAILY statistics. A row
+ // spanning a trading halt is a multi-month move, and annualising it by sqrt(252) as
+ // though it were one day inflates the result enormously — a single 191-day, +46%
+ // step from a suspended holding took one real portfolio from 46% to 65% volatility,
+ // which in turn drove the Monte Carlo median sharply negative.
+ const dailyRets=rets.filter(x=>x.days<=5),arr=dailyRets.map(x=>x.r);
+ if(arr.length<20)return null;
+ const vol=stdev(arr)*Math.sqrt(252)*100;
+ // Cumulative growth uses every step (those moves did happen), but the period is
+ // measured on the calendar rather than by counting observations — with gaps in the
+ // series those differ a lot, and dividing by arr.length/252 overstated the CAGR.
+ let curve=1,peak=1,maxDD=0;for(const x of rets){curve*=1+x.r;peak=Math.max(peak,curve);maxDD=Math.min(maxDD,curve/peak-1)}
+ const spanDays=(new Date(rows.at(-1).date+'T00:00:00Z')-new Date(rows[0].date+'T00:00:00Z'))/86400000;
+ const years=Math.max(1/12,spanDays/365.2425),ann=(Math.pow(curve,1/years)-1)*100,mom=arr.slice(-21).reduce((v,r)=>v*(1+r),1)-1,worst=Math.min(...arr)*100;let beta=null,corr=null;const q=state.benchmarks.qqq.history||[],s=state.benchmarks.spy.history||[];
+ const qMap=new Map(q.map((x,i)=>i?[x.date,x.close/q[i-1].close-1]:[x.date,null])),sMap=new Map(s.map((x,i)=>i?[x.date,x.close/s[i-1].close-1]:[x.date,null]));const pa=[],qa=[],sa=[];for(const x of dailyRets){if(qMap.get(x.date)!=null){pa.push(x.r);qa.push(qMap.get(x.date))}if(sMap.get(x.date)!=null)sa.push([x.r,sMap.get(x.date)])}if(pa.length>20){const v=stdev(qa);beta=v?covariance(pa,qa)/(v*v):null}if(sa.length>20)corr=correlation(sa.map(x=>x[0]),sa.map(x=>x[1]));const sharpe=vol? (ann-state.profile.riskFreeRate)/vol:null;const sortino=sortinoRatio(arr,state.profile.riskFreeRate);const calmar=maxDD!==0?ann/Math.abs(maxDD*100):null;return{vol,maxDD:maxDD*100,ann,mom:mom*100,worst,beta,corr,sharpe,sortino,calmar,returns:rets,curve}}
 function portfolioFallbackSeries(){
  const valuation=portfolioValuation();
  if(!valuation.hasHoldings)return[];
@@ -633,27 +717,39 @@ function whatIfBacktest(benchmarkKey){
   for(const p of series)if(p.date>=dateStr)return p.value;
   return null;
  }
- const buys=[];
+ const events=[];
+ const assetIds=new Set([...Object.keys(state.assets),...Object.keys(state.archivedAssets||{})]);
+ for(const id of assetIds){
+  const a=assetById(id),baseShares=Number(a.baselineShares)||0;
+  if(baseShares>0){const amount=baseShares*(Number(a.baselineAvgPrice)||0);if(amount>0)events.push({date:a.baselineDate||'0000-00-00',type:'buy',amount})}
+ }
  for(const t of state.transactions){
-  if(t.type!=='buy')continue;
-  const amount=(Number(t.shares)||0)*(Number(t.price)||0)+(Number(t.fee)||0);
-  if(amount>0)buys.push({date:t.date,amount});
+  const shares=Number(t.shares)||0,price=Number(t.price)||0,fee=Number(t.fee)||0;
+  if(t.type==='buy'){const amount=shares*price+fee;if(amount>0)events.push({date:t.date,type:'buy',amount})}
+  else{const amount=shares*price-fee;if(amount>0)events.push({date:t.date,type:'sell',amount})}
  }
- for(const a of Object.values(state.assets)){
-  const baseShares=Number(a.baselineShares)||0;
-  if(baseShares>0&&a.baselineDate){const amount=baseShares*(Number(a.baselineAvgPrice)||0);if(amount>0)buys.push({date:a.baselineDate,amount})}
- }
- if(!buys.length)return null;
- buys.sort((x,y)=>x.date.localeCompare(y.date));
- let units=0,contributed=0,skipped=0;
- for(const b of buys){
-  const price=valueOnOrAfter(b.date);
-  if(price==null||price<=0){skipped+=b.amount;continue}
-  units+=b.amount/price;
-  contributed+=b.amount;
+ if(!events.length)return null;
+ events.sort((x,y)=>x.date.localeCompare(y.date));
+ // Mirrors what actually happened: a sell frees up cash in the hypothetical position too,
+ // and that cash funds the next buy before any of it counts as a fresh contribution — so
+ // reinvesting real proceeds into a different holding doesn't get double-counted here either.
+ let units=0,contributed=0,skipped=0,cash=0;
+ for(const e of events){
+  const price=valueOnOrAfter(e.date);
+  if(price==null||price<=0){if(e.type==='buy')skipped+=e.amount;continue}
+  if(e.type==='buy'){
+   const fromCash=Math.min(cash,e.amount);
+   cash-=fromCash;
+   contributed+=e.amount-fromCash;
+   units+=e.amount/price;
+  }else{
+   const sellValue=Math.min(e.amount,units*price);
+   units-=sellValue/price;
+   cash+=sellValue;
+  }
  }
  if(contributed<=0)return null;
- const hypotheticalValue=units*series.at(-1).value;
+ const hypotheticalValue=units*series.at(-1).value+cash;
  return{contributed,skipped,hypotheticalValue,totalReturn:(hypotheticalValue/contributed-1)*100,coverage:contributed/(contributed+skipped)*100};
 }
 function sortinoRatio(arr,rf){if(!arr||arr.length<20)return null;const rfD=Math.pow(1+(rf||0)/100,1/252)-1,excess=arr.map(r=>r-rfD);const downsideSq=excess.map(r=>Math.min(0,r)**2);if(!downsideSq.some(v=>v>0))return null;const dd=Math.sqrt(mean(downsideSq))*Math.sqrt(252);return dd>0?mean(excess)*252/dd:null}
@@ -665,7 +761,7 @@ let rateRetryTimer=null;
 function providerLabel(){return 'Yahoo Finance · Delayed'}
 function hasKey(){return true}
 function nextMinuteDelay(){const d=new Date();return Math.max(5000,(60-d.getSeconds()+2)*1000)}
-function friendlyMarketError(err){const raw=err?.diagnostic||err?.message||String(err);if(err?.code==='rate_limit'||/429|too many requests|credits.*limit|run out of api credits/i.test(raw))return{short:'Market service is cooling down. Cached prices remain available.',detail:raw,kind:'rate_limit'};if(err?.code==='key'||/401|invalid api key|apikey/i.test(raw))return{short:'The selected market-data key could not be verified.',detail:raw,kind:'key'};if(err?.code==='proxy_missing'||/404|proxy endpoint|not deployed/i.test(raw))return{short:'Live proxy is not active in this static preview.',detail:raw,kind:'proxy_missing'};if(/403|not available|subscription|plan|access/i.test(raw))return{short:'This provider does not include the selected exchange feed.',detail:raw,kind:'access'};if(/failed to fetch|network|timeout|load failed/i.test(raw))return{short:'The market service could not be reached. Cached prices were kept.',detail:raw,kind:'network'};return{short:'Live refresh could not be completed. Cached prices were kept.',detail:raw,kind:'provider'}}
+function friendlyMarketError(err){const raw=err?.diagnostic||err?.message||String(err);if(err?.code==='rate_limit'||/429|too many requests/i.test(raw))return{short:'Yahoo Finance is cooling down. Cached prices remain available.',detail:raw,kind:'rate_limit'};if(err?.code==='proxy_missing'||/404|proxy endpoint|not deployed/i.test(raw))return{short:'Live proxy is not active in this static preview.',detail:raw,kind:'proxy_missing'};if(/403|not available|access/i.test(raw))return{short:'Yahoo Finance did not return this exchange listing.',detail:raw,kind:'access'};if(/failed to fetch|network|timeout|load failed/i.test(raw))return{short:'The market service could not be reached. Cached prices were kept.',detail:raw,kind:'network'};return{short:'Live refresh could not be completed. Cached prices were kept.',detail:raw,kind:'provider'}}
 async function fetchJson(url,options={}){const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),15000);let res,text,data=null;try{res=await fetch(url,{headers:{Accept:'application/json'},signal:ctrl.signal,...options});text=await res.text()}catch(e){clearTimeout(timer);if(e.name==='AbortError')throw new MarketDataError('Request timed out after 15 seconds.','network',e.message);throw new MarketDataError('Failed to reach market service.','network',e.message||String(e))}clearTimeout(timer);try{data=text?JSON.parse(text):null}catch{}if(res.status===404)throw new MarketDataError('Northstar proxy endpoint is not deployed.','proxy_missing',text||'HTTP 404');if(res.status===429)throw new MarketDataError('Market service rate limit reached.','rate_limit',(data&&(data.message||data.error))||text||'HTTP 429');if(!res.ok){const detail=(data&&(data.message||data.error||data.status))||text||`HTTP ${res.status}`;throw new MarketDataError(`Market-data request returned HTTP ${res.status}.`,res.status===401?'key':'provider',String(detail).slice(0,500))}if(data&&data.error)throw new MarketDataError(String(data.error),'provider',String(data.error));return data}
 function historyRange(){const n=Number(state.market.historySize)||260;return n>520?'3y':n>260?'2y':'1y'}
 function proxyUrl(symbols,full=false,override,force=false){const base='/api/market';const u=new URL(base,document.baseURI||location.href);u.searchParams.set('symbols',symbols.join(','));u.searchParams.set('range',full?historyRange():'5d');u.searchParams.set('interval',full?'1d':'1m');u.searchParams.set('mode',full?'history':'quote');if(force&&!full)u.searchParams.set('fresh','1');return u;}
@@ -691,33 +787,29 @@ function captureMonthEndSnapshots(a,rows){
   if(a.monthEndPrices[month]==null)a.monthEndPrices[month]=Number(row.close);
  }
 }
-function applyUnifiedAsset(id,payload,full=false){if(!payload)throw new MarketDataError(`${META[id].ticker} returned no quote payload.`,'provider');const basis='last',p=Number(payload.lastTrade??payload.price);if(!Number.isFinite(p)||p<=0)throw new MarketDataError(`${META[id].ticker} returned no usable price.`,'provider',JSON.stringify(payload||{}).slice(0,500));const a=state.assets[id],prev=Number(payload.previousClose)||null;a.currentPrice=p;a.ticker=payload.ticker||a.ticker;const payloadName=String(payload.name||'').trim();if(payloadName&&payloadName.toUpperCase()!==String(payload.ticker||a.ticker||'').toUpperCase())a.name=payloadName;else if(!a.name)a.name=payloadName||a.ticker;a.exchange=payload.exchange||a.exchange||exchangeName(a.symbol);a.currency='EUR';a.nativeCurrency=payload.nativeCurrency||a.nativeCurrency||'EUR';a.quote={previousClose:prev,change:prev?p-prev:null,percentChange:prev?(p/prev-1)*100:null,datetime:payload.marketTime||payload.updatedAt||new Date().toISOString(),marketOpen:payload.marketState==='REGULAR',marketState:payload.marketState||null,source:payload.source||providerLabel(),currency:'EUR',nativeCurrency:payload.nativeCurrency||'EUR',nativePrice:Number(payload.nativePrice)||null,fxToEur:Number(payload.fxToEur)||1,exchange:payload.exchange||a.exchange||exchangeName(a.symbol),priceBasis:basis,lastTrade:p,bid:null,ask:null,mid:null,spreadPct:null};const values=(payload.history||[]).filter(x=>x&&x.date&&Number(x.close));if(full&&values.length)a.history=values.slice(-(state.market.historySize||260));else if(values.length){const latest=values.at(-1),date=String(latest.date).slice(0,10),last=a.history?.at(-1);a.history=a.history||[];if(last?.date===date)last.close=Number(latest.close);else a.history.push({date,close:Number(latest.close)});a.history=a.history.slice(-(state.market.historySize||260))}captureMonthEndSnapshots(a,values);rebuildMeta()}
+function applyUnifiedAsset(id,payload,full=false){if(!payload)throw new MarketDataError(`${META[id].ticker} returned no quote payload.`,'provider');const basis='last',p=Number(payload.lastTrade??payload.price);if(!Number.isFinite(p)||p<=0)throw new MarketDataError(`${META[id].ticker} returned no usable price.`,'provider',JSON.stringify(payload||{}).slice(0,500));const a=assetById(id);if(!a)return;const prev=Number(payload.previousClose)||null;a.currentPrice=p;a.ticker=payload.ticker||a.ticker;const payloadName=String(payload.name||'').trim();if(payloadName&&payloadName.toUpperCase()!==String(payload.ticker||a.ticker||'').toUpperCase())a.name=payloadName;else if(!a.name)a.name=payloadName||a.ticker;a.exchange=payload.exchange||a.exchange||exchangeName(a.symbol);a.currency='EUR';a.nativeCurrency=payload.nativeCurrency||a.nativeCurrency||'EUR';a.quote={previousClose:prev,change:prev?p-prev:null,percentChange:prev?(p/prev-1)*100:null,datetime:payload.marketTime||payload.updatedAt||new Date().toISOString(),marketOpen:payload.marketState==='REGULAR',marketState:payload.marketState||null,source:payload.source||providerLabel(),currency:'EUR',nativeCurrency:payload.nativeCurrency||'EUR',nativePrice:Number(payload.nativePrice)||null,fxToEur:Number(payload.fxToEur)||1,exchange:payload.exchange||a.exchange||exchangeName(a.symbol),priceBasis:basis,lastTrade:p,bid:null,ask:null,mid:null,spreadPct:null};const values=(payload.history||[]).filter(x=>x&&x.date&&Number(x.close));if(full&&values.length)a.history=values.slice(-(state.market.historySize||260));else if(values.length){const latest=values.at(-1),date=String(latest.date).slice(0,10),last=a.history?.at(-1);a.history=a.history||[];if(last?.date===date)last.close=Number(latest.close);else a.history.push({date,close:Number(latest.close)});a.history=a.history.slice(-(state.market.historySize||260))}captureMonthEndSnapshots(a,values);rebuildMeta()}
 function applyUnifiedBenchmark(key,payload){const values=(payload?.history||[]).filter(x=>x&&x.date&&Number(x.close));if(values.length)state.benchmarks[key].history=values.slice(-(state.market.historySize||260))}
 async function fetchProxyBatch(full=false,endpointOverride,force=false){
- const assetIds=Object.keys(state.assets),assetSymbols=assetIds.map(id=>state.assets[id].symbol),benchmarkKeys=Object.keys(state.benchmarks),benchmarkSymbols=full?benchmarkKeys.map(key=>state.benchmarks[key].symbol):[],symbols=[...assetSymbols,...benchmarkSymbols];
+ // Archived holdings with shares still open are priced too — they count towards
+ // value and P&L, so leaving them unpriced would strand the whole portfolio in
+ // the "sync prices" state.
+ const archivedOpen=Object.keys(state.archivedAssets||{}).filter(id=>replay(id).shares>1e-10);
+ const assetIds=[...Object.keys(state.assets),...archivedOpen],assetSymbols=assetIds.map(id=>assetById(id).symbol),benchmarkKeys=Object.keys(state.benchmarks),benchmarkSymbols=full?benchmarkKeys.map(key=>state.benchmarks[key].symbol):[],symbols=[...assetSymbols,...benchmarkSymbols];
  if(!symbols.length)throw new MarketDataError('Add a holding before syncing prices.','provider');
  const result=await fetchJson(proxyUrl(symbols,full,endpointOverride,force)),data=result.data||result.symbols||{},failures=[];
  assetIds.forEach((id,index)=>{try{applyUnifiedAsset(id,data[assetSymbols[index]],full)}catch(error){failures.push(error)}});if(assetIds.length&&failures.length===assetIds.length){const detail=result.diagnostic||Object.entries(result.liveIssues||{}).map(([symbol,message])=>`${symbol}: ${message}`).join(' | ')||Object.entries(result.errors||{}).map(([symbol,message])=>`${symbol}: ${message}`).join(' | ');throw new MarketDataError(result.error||'No selected holding returned a usable price.','provider',detail)}
  if(full)benchmarkKeys.forEach((key,index)=>applyUnifiedBenchmark(key,data[benchmarkSymbols[index]]));
- return{failures,provider:result.provider||'Northstar market service',updatedAt:result.updatedAt,freshRequested:!!result.freshRequested,realtime:!!result.realtime,realTimeConfigured:!!result.realTimeConfigured,warnings:result.warnings||[],diagnostic:result.diagnostic||'',liveIssues:result.liveIssues||{},errors:result.errors||{}};
+ return{failures,provider:result.provider||'Northstar market service',updatedAt:result.updatedAt,freshRequested:!!result.freshRequested,warnings:result.warnings||[],diagnostic:result.diagnostic||'',errors:result.errors||{}};
 }
-function providerMode(){return (state.market.twelveKey||'').trim().length>0?'twelve':'proxy'}
-async function fetchAssetBatch(full=false,override,force=false){
- if(providerMode()==='proxy')return fetchProxyBatch(full,override,force);
- try{return await fetchTwelveBatch(full)}
- catch(e){
-  if(e?.code==='key')throw e;
-  if(e?.code==='network')throw e;
-  // plan restriction → server proxy has Stooq fallback for these symbols
-  return fetchProxyBatch(full,override,force);}}
+async function fetchAssetBatch(full=false,override,force=false){return fetchProxyBatch(full,override,force)}
 async function testConnection(){const out=$('#connectionResult'),count=Object.keys(state.assets).length;out.className='';if(!count){out.textContent='Add a holding before testing prices.';out.className='amber';return false}state.market.lastTestAttempt=Date.now();save();out.textContent=`Fetching prices for ${count} holding${count===1?'':'s'} via Yahoo Finance…`;try{const result=await fetchAssetBatch(false,undefined,true);out.textContent=`✓ Connected · ${count} holding${count===1?'':'s'} · ${result.provider||'Yahoo Finance'}`;out.className='positive';state.market.lastDiagnostic='Yahoo Finance (yfinance) prices fetched successfully.';save();renderAll();return true}catch(error){const f=friendlyMarketError(error);out.textContent=f.short;out.className='negative';state.market.lastDiagnostic=f.detail;save();if($('#diagnosticText'))$('#diagnosticText').textContent=f.detail;return false}}
 async function syncMarket(show=true,deep=false,force=false){
  if(syncing)return;const assetCount=Object.keys(state.assets).length;if(!assetCount){if(show)toast('Add a holding before syncing prices.','warn');return}if(!hasKey()){openSettings();toast('Configure the Northstar market endpoint.','warn');return}
  const now=Date.now(),limited=Number(state.market.rateLimitedUntil)||0;if(limited>now&&!force){if(show)toast('Refresh is paused while the market provider cools down.','warn');renderMarket();return}const lastAttempt=Number(state.market.lastAttempt)||0;if(!force&&now-lastAttempt<MARKET_MIN_SYNC_MS){if(show)toast('Prices were checked recently. Cached values are still current.');return}
  syncing=true;state.market.lastAttempt=now;state.market.lastError='';state.market.lastWarning='';renderMarket();
- try{const quoteResult=await fetchAssetBatch(false,undefined,force);state.market.lastUpdated=quoteResult.updatedAt||new Date().toISOString();state.market.rateLimitedUntil=null;state.market.lastDiagnostic=quoteResult.diagnostic||`${quoteResult.provider} returned ${quoteResult.realtime?'real-time':'latest available'} prices.`;const warnings=[...(quoteResult.warnings||[])];if(quoteResult.failures?.length)warnings.push(`${quoteResult.failures.length} quote${quoteResult.failures.length===1?'':'s'} unavailable.`);
+ try{const quoteResult=await fetchAssetBatch(false,undefined,force);state.market.lastUpdated=quoteResult.updatedAt||new Date().toISOString();state.market.rateLimitedUntil=null;state.market.lastDiagnostic=quoteResult.diagnostic||`${quoteResult.provider} returned the latest available prices.`;const warnings=[...(quoteResult.warnings||[])];if(quoteResult.failures?.length)warnings.push(`${quoteResult.failures.length} quote${quoteResult.failures.length===1?'':'s'} unavailable.`);
   const needsHistory=deep||!state.market.lastHistorySync||Date.now()-new Date(state.market.lastHistorySync).getTime()>24*3600000||Object.values(state.assets).some(asset=>(asset.history||[]).length<2)||Object.values(state.benchmarks).some(item=>(item.history||[]).length<2);if(needsHistory){try{const historyResult=await fetchAssetBatch(true,undefined,false);state.market.lastHistorySync=historyResult.updatedAt||new Date().toISOString();if(historyResult.failures?.length)warnings.push(`${historyResult.failures.length} history series unavailable.`);if(historyResult.diagnostic)state.market.lastDiagnostic+=` History: ${historyResult.diagnostic}`}catch(historyError){const friendly=friendlyMarketError(historyError);warnings.push(`Current prices synced, but chart history could not refresh: ${friendly.short}`);state.market.lastDiagnostic+=` History: ${friendly.detail}`}}
-  state.market.lastWarning=warnings.join(' ');state.snapshots.push({date:new Date().toISOString(),value:totalValue()});if(state.snapshots.length>500)state.snapshots=state.snapshots.slice(-500);save();renderAll();if(show){const headline=quoteResult.realtime?'Live prices synced.':'Latest available prices synced.';toast(state.market.lastWarning?`${headline} ${state.market.lastWarning}`:headline,quoteResult.realtime?'':'warn')}}catch(error){const friendly=friendlyMarketError(error);state.market.lastError=friendly.short;state.market.lastDiagnostic=friendly.detail;if(friendly.kind==='rate_limit'){const delay=nextMinuteDelay();state.market.rateLimitedUntil=Date.now()+delay;clearTimeout(rateRetryTimer)}save();renderAll();if(show&&friendly.kind!=='proxy_missing')toast(friendly.short,'warn')}finally{syncing=false;renderMarket()}
+  state.market.lastWarning=warnings.join(' ');state.snapshots.push({date:new Date().toISOString(),value:totalValue()});if(state.snapshots.length>500)state.snapshots=state.snapshots.slice(-500);save();renderAll();if(show){const headline='Latest available prices synced.';toast(state.market.lastWarning?`${headline} ${state.market.lastWarning}`:headline,state.market.lastWarning?'warn':'')}}catch(error){const friendly=friendlyMarketError(error);state.market.lastError=friendly.short;state.market.lastDiagnostic=friendly.detail;if(friendly.kind==='rate_limit'){const delay=nextMinuteDelay();state.market.rateLimitedUntil=Date.now()+delay;clearTimeout(rateRetryTimer)}save();renderAll();if(show&&friendly.kind!=='proxy_missing')toast(friendly.short,'warn')}finally{syncing=false;renderMarket()}
 }
 function setupTimer(){clearInterval(timer);if(state.market.autoRefresh&&hasKey())timer=setInterval(()=>syncMarket(false,false,false),Math.max(15,state.market.refreshSeconds||30)*1000)}
 function renderMarket(){const connected=hasKey(),hasData=Object.values(state.assets).some(a=>Number(a.currentPrice)),limited=(Number(state.market.rateLimitedUntil)||0)>Date.now(),healthy=connected&&hasData&&!state.market.lastError;$('#liveDot').className='dot '+(state.market.lastError?'error':healthy?'live':'');$('#liveText').textContent=limited?'Cooling down':state.market.lastError?'Using cached prices':healthy?'Market data ready':'Market data offline';$('#marketStatus').textContent=limited?'Refresh safely paused':state.market.lastError?'Cached pricing active':healthy?'Market pricing connected':connected?'Market connection configured':'Market data not connected';let detail;if(limited)detail='Northstar will retry automatically. Your last prices remain available.';else if(state.market.lastError)detail=state.market.lastError;else if(healthy)detail=`${providerLabel()} · ${basisName()} · manual fresh sync${state.market.lastWarning?' · '+state.market.lastWarning:''}`;else detail='Deploy the bundled Northstar market service, then add a holding to activate prices.';$('#marketDetail').textContent=detail;$('#marketUpdated').textContent=state.market.lastUpdated?`Updated ${new Date(state.market.lastUpdated).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}`:'No sync yet';$('#refreshCadence').textContent='On demand';$('#providerLabel').textContent=providerLabel();if($('#diagnosticText'))$('#diagnosticText').textContent=state.market.lastDiagnostic||'No diagnostics recorded.'}
@@ -740,8 +832,7 @@ function renderOverview(){
  if(!valuation.hasHoldings)$('#valueSub').textContent=`0.00% of ${fmt(goal)}`;
  else if(valuation.unpricedCount)$('#valueSub').textContent=`${progress.toFixed(2)}% of ${fmt(goal)} · ${valuation.unpricedCount} position${valuation.unpricedCount===1?'':'s'} valued at cost`;
  else $('#valueSub').textContent=`${progress.toFixed(2)}% of ${fmt(goal)}`;
- $('#pnlSub').textContent=pnlKnown?`Realised ${fmt(totalRealized(),2)} · Unrealised ${fmt(totalUnreal(),2)}`:`Realised ${fmt(totalRealized(),2)} · sync ${valuation.unpricedCount} price${valuation.unpricedCount===1?'':'s'} for total P&L`;
- $('#costSub').textContent=`Gross invested ${fmt(grossInvested(),0)}`;
+ $('#pnlSub').textContent=pnlKnown?`Realised ${fmt(totalRealized(),2)} · Unrealised ${fmt(totalUnreal(),2)} · gross invested ${fmt(grossInvested(),0)}`:`Realised ${fmt(totalRealized(),2)} · sync ${valuation.unpricedCount} price${valuation.unpricedCount===1?'':'s'} for total P&L`;
  $('#goalPct').textContent=pct(progress,2);
  $('#goalRing').style.setProperty('--p',`${progress*3.6}deg`);
  const monthly=monthlyTotal(),mtg=monthsToGoal(goal,tv,monthly,state.profile.expectedReturn);
@@ -751,8 +842,8 @@ function renderOverview(){
  $('#returnSub').textContent=pr==null?(valuation.hasHoldings?'Sync all open positions to calculate':'Add a transaction to begin'):daysBetween(state.profile.startDate,TODAY)<90?'Early-stage figure':'Since tracking began'
 
  renderKpis();renderBenchmarkBoard();renderAllocation();renderHoldings();renderActionPlan();drawMainChart();renderMarket()}
-function renderAllocation(){const tv=totalValue(),ids=Object.keys(state.assets);if(!ids.length){$('#donut').style.background='rgba(255,255,255,.04)';$('#donutValue').textContent='—';$('#allocationStatus').textContent='Add holdings';$('#allocationStatus').className='status amber';$('#allocationList').innerHTML='<div class="empty-portfolio"><strong>No allocation yet</strong>Add holdings from the Positions page to create your target allocation.</div>';return}let d=0,stops=[];for(const id of ids){const w=weight(id),s=d;d+=w*360;stops.push(`${META[id].color} ${s}deg ${d}deg`)}$('#donut').style.background=`conic-gradient(${stops.join(',')})`;$('#donutValue').textContent=state.market.lastUpdated?fmt(tv,0):'—';const ds=driftScore();$('#allocationStatus').textContent=ds>=90?'On target':ds>=75?'Minor drift':'Rebalance with contributions';$('#allocationStatus').className='status '+(ds>=90?'positive':ds>=75?'amber':'negative');$('#allocationList').innerHTML=ids.map(id=>{const w=weight(id),t=state.assets[id].target,dr=(w-t)*100,p=replay(id);return `<div class="alloc-item"><div><b><i class="ticker-dot" style="background:${META[id].color}"></i>${esc(META[id].ticker)} · ${esc(META[id].focus)}</b><small>${fmt(p.value,0)} · target ${pct(t*100)}</small><div class="drift-bar"><i style="width:${Math.min(100,Math.abs(dr)*8+4)}%;background:${Math.abs(dr)>5?'var(--amber)':META[id].color}"></i></div></div><div class="alloc-right"><strong>${pct(w*100)}</strong><small class="${Math.abs(dr)>5?'amber':''}">${dr>=0?'+':''}${dr.toFixed(1)} pp</small></div></div>`}).join('')}
-function renderHoldings(){const live=!!state.market.lastUpdated,ids=Object.keys(state.assets);if(!ids.length){$('#holdingsGrid').innerHTML='<div class="empty-portfolio"><strong>Your portfolio is empty</strong>Open Positions and add the European-listed instruments you want to track.</div>';return}$('#holdingsGrid').innerHTML=ids.map(id=>{const p=replay(id),m=META[id],a=state.assets[id],r=p.cost?p.unreal/p.cost*100:null,dc=p.prev&&p.price?(p.price/p.prev-1)*100:null,ax=assetXirr(id);return `<article class="card holding"><div class="holding-head"><div><div class="holding-title">${esc(m.name)}</div><div class="issuer">${esc(a.exchange||m.issuer)}${m.ter?` · TER ${m.ter.toFixed(2)}%`:''}</div></div><div class="logo">${m.logo?`<img src="${esc(m.logo)}" alt="${esc(m.issuer)} logo" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display=''"><div class="logo-letter" style="background:${m.color};display:none">${esc(m.ticker.slice(0,2))}</div>`:`<div class="logo-letter" style="background:${m.color}">${esc(m.ticker.slice(0,2))}</div>`}</div></div><div class="holding-symbol">${esc(m.ticker)}</div><div class="price-line"><div><span>${basisName()}</span><strong>${live&&p.price?fmt(p.price,4):'—'}</strong></div><div class="daymove"><span>Today</span><strong class="${dc==null?'':dc>=0?'positive':'negative'}">${dc==null?'—':`${dc>=0?'+':''}${pct(dc,2)}`}</strong></div></div><div class="quote-meta"><b>${quoteState(id)}</b><span>${quoteDetails(id)}</span></div><div class="stats2"><div class="stat"><span>Fractional shares</span><strong>${num(p.shares)}</strong></div><div class="stat"><span>Average entry</span><strong>${p.avg?fmt(p.avg,4):'—'}</strong></div><div class="stat"><span>Market value</span><strong>${live?fmt(p.value,2):'—'}</strong></div><div class="stat"><span>Unrealised P&amp;L</span><strong class="${p.unreal>=0?'positive':'negative'}">${live?`${p.unreal>=0?'+':''}${fmt(p.unreal,2)} · ${r==null?'—':pct(r,2)}`:'—'}</strong></div><div class="stat"><span>Portfolio weight</span><strong>${pct(weight(id)*100)}</strong></div><div class="stat"><span>XIRR</span><strong class="${ax==null?'':ax>=0?'positive':'negative'}">${ax==null?'—':`${ax>=0?'+':''}${pct(ax*100,2)}`}</strong></div></div><div class="holding-foot"><span>${esc(a.symbol)}</span><span class="risk">${esc(a.nativeCurrency||'EUR')} listing</span></div></article>`}).join('')}
+function renderAllocation(){const tv=totalValue(),ids=Object.keys(state.assets);if(!ids.length){$('#donut').style.background='rgba(255,255,255,.04)';$('#donutValue').textContent='—';$('#allocationStatus').textContent='Add holdings';$('#allocationStatus').className='status amber';$('#allocationList').innerHTML='<div class="empty-portfolio"><strong>No allocation yet</strong>Add holdings from the Positions page to create your target allocation.</div>';return}let d=0,stops=[];for(const id of ids){const w=weight(id),s=d;d+=w*360;stops.push(`${META[id].color} ${s}deg ${d}deg`)}$('#donut').style.background=`conic-gradient(${stops.join(',')})`;$('#donutValue').textContent=state.market.lastUpdated?fmt(activeValue(),0):'—';const ds=driftScore();$('#allocationStatus').textContent=ds>=90?'On target':ds>=75?'Minor drift':'Rebalance with contributions';$('#allocationStatus').className='status '+(ds>=90?'positive':ds>=75?'amber':'negative');$('#allocationList').innerHTML=ids.map(id=>{const w=weight(id),t=state.assets[id].target,dr=(w-t)*100,p=replay(id);return `<div class="alloc-item"><div><b><i class="ticker-dot" style="background:${META[id].color}"></i>${esc(META[id].ticker)} · ${esc(META[id].focus)}</b><small>${fmt(p.value,0)} · target ${pct(t*100)}</small><div class="drift-bar"><i style="width:${Math.min(100,Math.abs(dr)*8+4)}%;background:${Math.abs(dr)>5?'var(--amber)':META[id].color}"></i></div></div><div class="alloc-right"><strong>${pct(w*100)}</strong><small class="${Math.abs(dr)>5?'amber':''}">${dr>=0?'+':''}${dr.toFixed(1)} pp</small></div></div>`}).join('')}
+function renderHoldings(){const live=!!state.market.lastUpdated,archivedOpen=Object.keys(state.archivedAssets||{}).filter(id=>replay(id).shares>1e-10),ids=[...Object.keys(state.assets),...archivedOpen];if(!ids.length){$('#holdingsGrid').innerHTML='<div class="empty-portfolio"><strong>Your portfolio is empty</strong>Open Positions and add the European-listed instruments you want to track.</div>';return}$('#holdingsGrid').innerHTML=ids.map(id=>{const p=replay(id),m=META[id],a=assetById(id)||{},r=p.cost?p.unreal/p.cost*100:null,dc=p.prev&&p.price?(p.price/p.prev-1)*100:null,ax=assetXirr(id);return `<article class="card holding"><div class="holding-head"><div><div class="holding-title">${esc(m.name)}</div><div class="issuer">${esc(a.exchange||m.issuer)}${m.ter?` · TER ${m.ter.toFixed(2)}%`:''}</div></div><div class="logo">${m.logo?`<img src="${esc(m.logo)}" alt="${esc(m.issuer)} logo" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display=''"><div class="logo-letter" style="background:${m.color};display:none">${esc(m.ticker.slice(0,2))}</div>`:`<div class="logo-letter" style="background:${m.color}">${esc(m.ticker.slice(0,2))}</div>`}</div></div><div class="holding-symbol">${esc(m.ticker)}${m.archived?' <small class="amber">RETIRED FROM PLAN</small>':''}</div><div class="price-line"><div><span>${basisName()}</span><strong>${live&&p.price?fmt(p.price,4):'—'}</strong></div><div class="daymove"><span>Today</span><strong class="${dc==null?'':dc>=0?'positive':'negative'}">${dc==null?'—':`${dc>=0?'+':''}${pct(dc,2)}`}</strong></div></div><div class="quote-meta"><b>${quoteState(id)}</b><span>${quoteDetails(id)}</span></div><div class="stats2"><div class="stat"><span>Fractional shares</span><strong>${num(p.shares)}</strong></div><div class="stat"><span>Average entry</span><strong>${p.avg?fmt(p.avg,4):'—'}</strong></div><div class="stat"><span>Market value</span><strong>${live?fmt(p.value,2):'—'}</strong></div><div class="stat"><span>Unrealised P&amp;L</span><strong class="${p.unreal>=0?'positive':'negative'}">${live?`${p.unreal>=0?'+':''}${fmt(p.unreal,2)} · ${r==null?'—':pct(r,2)}`:'—'}</strong></div><div class="stat"><span>Portfolio weight</span><strong>${m.archived?'—':pct(weight(id)*100)}</strong></div><div class="stat"><span>XIRR</span><strong class="${ax==null?'':ax>=0?'positive':'negative'}">${ax==null?'—':`${ax>=0?'+':''}${pct(ax*100,2)}`}</strong></div></div><div class="holding-foot"><span>${esc(a.symbol)}</span><span class="risk">${esc(a.nativeCurrency||'EUR')} listing</span></div></article>`}).join('')}
 function actionPlanRows(budget){const rows=Object.entries(budget).filter(([id,amount])=>state.assets[id]&&amount>0.5).sort((a,b)=>b[1]-a[1]);return rows.map(([id,amount])=>{const ticker=esc(META[id]?.ticker||id),name=esc(META[id]?.name||'');return `<div class="action-row"><span style="min-width:0;overflow:hidden"><b style="display:block">${ticker}</b>${name?`<small style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.65;font-weight:400">${name}</small>`:''}</span><strong style="flex-shrink:0;margin-left:10px">${fmt(amount,0)}</strong></div>`}).join('')}
 function renderActionPlan(){
  const statusEl=$('#planStatus'),dotEl=$('#planDot'),amountEl=$('#boostAmount'),titleEl=$('#boostTitle'),copyEl=$('#boostCopy'),listEl=$('#actionPlan');
@@ -813,10 +904,16 @@ function monteCarloVolatility(){const r=riskMetrics();if(r&&Number.isFinite(r.vo
 function runMonteCarlo({start,monthly,annualReturnPct,annualVolPct,months,paths=MC_PATHS,seed=MC_SEED}){
  months=Math.max(1,Math.round(months));
  const sigmaM=Math.max(0,annualVolPct)/100/Math.sqrt(12);
- const targetMonthlyGrowth=Math.pow(1+annualReturnPct/100,1/12);
- // Ito correction so E[exp(logReturn)] equals the same deterministic monthly
- // growth factor futureValue() uses — the simulation's mean path stays
- // anchored to the "Base" assumption shown in the Compounding map above.
+ // futureValue() — and monthsToGoal(), monthlyNeeded(), the milestone table and
+ // the Base projection line — treat the expected return as a nominal annual rate
+ // compounded monthly, i.e. r/12 per month. Using (1+r)^(1/12) here instead meant
+ // the simulation quietly modelled a lower return than every other number in the
+ // app: 8.00%/yr against futureValue()'s 8.30%/yr, which understated the mean by
+ // 4% over 20 years and by 9% at a 12% return.
+ const targetMonthlyGrowth=1+annualReturnPct/100/12;
+ // Ito correction so E[exp(logReturn)] equals that same deterministic monthly
+ // growth factor — the simulation's mean path stays anchored to the "Base"
+ // assumption shown in the Compounding map above.
  const muLogM=Math.log(Math.max(1e-6,targetMonthlyGrowth))-0.5*sigmaM*sigmaM;
  const rng=mulberry32(seed);
  const columns=[Float64Array.from({length:paths},()=>start)];
@@ -831,7 +928,23 @@ function runMonteCarlo({start,monthly,annualReturnPct,annualVolPct,months,paths=
  const series=columns.map((col,i)=>{const sorted=Float64Array.from(col).sort();return{month:i,p5:percentileOf(sorted,.05),p25:percentileOf(sorted,.25),p50:percentileOf(sorted,.5),p75:percentileOf(sorted,.75),p95:percentileOf(sorted,.95)}});
  return{series,columns};
 }
-function monteCarloGoalProbability(columns,monthIndex,goal){const col=columns[Math.max(0,Math.min(columns.length-1,Math.round(monthIndex)))];if(!col||!col.length)return null;let hits=0;for(let i=0;i<col.length;i++)if(col[i]>=goal)hits++;return hits/col.length*100}
+// Share of paths that REACH the goal at any point up to monthIndex — which is what
+// "chance of hitting goal by target date" claims. Testing only the value standing on
+// the deadline itself misses every path that got there earlier and then dipped, and
+// understated the real figure by 4-9 percentage points. Walks month-major with a
+// reached[] flag so each column is scanned once, sequentially.
+function monteCarloGoalProbability(columns,monthIndex,goal){
+ if(!columns||!columns.length||!(goal>0))return null;
+ const paths=columns[0].length;if(!paths)return null;
+ const limit=Math.max(0,Math.min(columns.length-1,Math.round(monthIndex)));
+ const reached=new Uint8Array(paths);
+ let hits=0;
+ for(let m=0;m<=limit;m++){
+  const col=columns[m];
+  for(let p=0;p<paths;p++)if(!reached[p]&&col[p]>=goal){reached[p]=1;hits++}
+ }
+ return hits/paths*100;
+}
 function withAlpha(hex,a){if(!hex||hex[0]!=='#')return `rgba(27,138,76,${a})`;let h=hex.slice(1);if(h.length===3)h=h.split('').map(x=>x+x).join('');const n=parseInt(h,16);return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`}
 function drawFanChart(canvas,series,opts={}){
  if(!canvas)return;
@@ -884,9 +997,14 @@ function renderMonteCarlo(){
  if(!Object.keys(state.assets).length){drawFanChart(canvas,[]);for(const id of ['mcMedian','mcRange','mcGoalProb'])if($('#'+id))$('#'+id).textContent='—';return}
  clearTimeout(_mcTimer);
  _mcTimer=setTimeout(()=>{
-  const {series,columns}=runMonteCarlo({start:tv,monthly,annualReturnPct:ret,annualVolPct:vol,months:h*12});
-  const last=series[series.length-1],topOfChart=Math.max(...series.map(s=>s.p95));
-  drawFanChart(canvas,series,{goal:goal>0&&goal<=topOfChart*1.2?goal:null});
+  // The target date can sit beyond the chart horizon (deadline runs to 20y, horizon
+  // starts at 10y). Simulate far enough to answer the goal question at its real
+  // date rather than clamping it to the last month drawn, then draw only the
+  // horizon the chart asks for.
+  const {series,columns}=runMonteCarlo({start:tv,monthly,annualReturnPct:ret,annualVolPct:vol,months:Math.max(h,deadline)*12});
+  const chartSeries=series.slice(0,h*12+1);
+  const last=chartSeries[chartSeries.length-1],topOfChart=Math.max(...chartSeries.map(s=>s.p95));
+  drawFanChart(canvas,chartSeries,{goal:goal>0&&goal<=topOfChart*1.2?goal:null});
   if($('#mcMedian'))$('#mcMedian').textContent=fmt(last.p50,0);
   if($('#mcRange'))$('#mcRange').textContent=`${fmt(last.p5,0)} – ${fmt(last.p95,0)}`;
   const prob=goal>0?monteCarloGoalProbability(columns,deadline*12,goal):null;
@@ -923,7 +1041,7 @@ function drawMainChart(){
  const portfolio=modelSeries(),nasdaq=benchmarkSeries('qqq'),sp500=benchmarkSeries('spy'),aligned=alignPerformanceSeries([{name:'Portfolio',color:'#141414',width:3.6,data:portfolio.map(point=>({date:point.date,y:point.value}))},{name:'Nasdaq-100',color:'#2E6BE6',width:1.8,dash:[7,4],data:nasdaq.map(point=>({date:point.date,y:point.value}))},{name:'S&P 500',color:'#E63312',width:1.8,dash:[3,4],data:sp500.map(point=>({date:point.date,y:point.value}))}]);
  const portfolioPoints=aligned.find(item=>item.name==='Portfolio')?.data.length||0;const portfolioEstimated=!!portfolio.estimated;$('#mainChartTitle').textContent='Portfolio vs benchmarks';$('#mainChartSub').textContent=portfolioPoints>=2?'Common date range · rebased to 100 · hover for exact values':'Portfolio history is incomplete. Run Sync prices to load daily closes.';$('#mainLegend').innerHTML=aligned.map(item=>`<span><i style="background:${item.color}"></i>${item.name}${item.name==='Portfolio'&&item.data.length<2?' · history needed':''}</span>`).join('');drawChart(canvas,aligned);
 }
-function renderPositions(){const ledger=transactionLedger(),assetIds=Object.keys(state.assets);$('#positionGrid').innerHTML=assetIds.length?assetIds.map(id=>{const a=state.assets[id],p=replay(id),m=META[id],live=!!state.market.lastUpdated;return `<div class="position-card"><div class="position-card-head"><div><strong><i class="ticker-dot" style="background:${m.color}"></i>${esc(m.ticker)}</strong><span>${esc(m.name)} · ${esc(a.symbol)}</span></div><button class="delete" data-reset="${id}">Reset</button></div><div class="position-inputs"><div class="field"><label>Starting shares</label><input data-pos="${id}" data-key="baselineShares" type="number" min="0" step="0.000001" value="${Number(a.baselineShares)||0}"></div><div class="field"><label>Average entry (€)</label><input data-pos="${id}" data-key="baselineAvgPrice" type="number" min="0" step="0.0001" value="${Number(a.baselineAvgPrice)||0}"></div><div class="field"><label>Prior realised P&amp;L (€)</label><input data-pos="${id}" data-key="baselineRealizedPnl" type="number" step="0.01" value="${Number(a.baselineRealizedPnl)||0}"></div><div class="field"><label>Baseline as of</label><input data-pos="${id}" data-key="baselineDate" data-pos-type="date" type="date" value="${esc(a.baselineDate||'')}"></div></div><div class="locked-price"><span>${basisName()}</span><strong>${live&&p.price?fmt(p.price,4):'Waiting for sync'}</strong></div><div class="quote-meta"><b>${quoteState(id)}</b><span>${quoteDetails(id)}</span></div><div class="position-summary"><div><span>Current shares</span><strong>${num(p.shares)}</strong></div><div><span>Current avg</span><strong>${p.avg?fmt(p.avg,4):'—'}</strong></div><div><span>Market value</span><strong>${live?fmt(p.value,2):'—'}</strong></div><div><span>Unrealised</span><strong class="${p.unreal>=0?'positive':'negative'}">${live?fmt(p.unreal,2):'—'}</strong></div></div></div>`}).join(''):'<div class="empty-portfolio"><strong>No positions yet</strong>Add a holding above to create its position card.</div>';const rows=[...state.transactions].filter(t=>state.assets[t.asset]).sort((a,b)=>new Date(b.date)-new Date(a.date)||Number(b.createdAt||0)-Number(a.createdAt||0));const totalPages=Math.max(1,Math.ceil(rows.length/TRADE_PAGE_SIZE));tradePage=Math.min(Math.max(0,tradePage),totalPages-1);const pageRows=rows.slice(tradePage*TRADE_PAGE_SIZE,(tradePage+1)*TRADE_PAGE_SIZE);$('#tradeBody').innerHTML=pageRows.length?pageRows.map(t=>`<tr><td>${dateFmt(t.date)}</td><td class="${t.type==='buy'?'positive':'amber'}">${t.type.toUpperCase()}</td><td>${esc(META[t.asset]?.ticker||t.asset)}</td><td>${num(t.shares)}</td><td>${fmt(t.price,4)}${t.estimated?' <small class="amber">EST</small>':''}</td><td>${fmt(t.fee||0,2)}</td><td>${ledger[t.id]?.realized==null?'—':`<span class="${ledger[t.id].realized>=0?'positive':'negative'}">${ledger[t.id].realized>=0?'+':''}${fmt(ledger[t.id].realized,2)} · ${pct(ledger[t.id].realizedPct,2)}${ledger[t.id].overridden?' <small class="amber">MANUAL</small>':''}</span>`}</td><td><button class="delete" data-del="${t.id}">Delete</button></td></tr>`).join(''):'<tr><td colspan="8"><div class="empty">No recorded trades yet.<br>Your baseline holdings still calculate unrealised P&amp;L.</div></td></tr>';const pager=$('#tradePagination');if(pager)pager.innerHTML=rows.length>TRADE_PAGE_SIZE?`<span>${rows.length} trades · page ${tradePage+1} of ${totalPages}</span><div style="display:flex;gap:8px"><button class="btn" data-page-action="prev"${tradePage===0?' disabled':''}>‹ Prev</button><button class="btn" data-page-action="next"${tradePage>=totalPages-1?' disabled':''}>Next ›</button></div>`:'';renderTradePreview();renderNextOrder()}
+function renderPositions(){const ledger=transactionLedger(),assetIds=Object.keys(state.assets);$('#positionGrid').innerHTML=assetIds.length?assetIds.map(id=>{const a=state.assets[id],p=replay(id),m=META[id],live=!!state.market.lastUpdated;return `<div class="position-card"><div class="position-card-head"><div><strong><i class="ticker-dot" style="background:${m.color}"></i>${esc(m.ticker)}</strong><span>${esc(m.name)} · ${esc(a.symbol)}</span></div><button class="delete" data-reset="${id}">Reset</button></div><div class="position-inputs"><div class="field"><label>Starting shares</label><input data-pos="${id}" data-key="baselineShares" type="number" min="0" step="0.000001" value="${Number(a.baselineShares)||0}"></div><div class="field"><label>Average entry (€)</label><input data-pos="${id}" data-key="baselineAvgPrice" type="number" min="0" step="0.0001" value="${Number(a.baselineAvgPrice)||0}"></div><div class="field"><label>Prior realised P&amp;L (€)</label><input data-pos="${id}" data-key="baselineRealizedPnl" type="number" step="0.01" value="${Number(a.baselineRealizedPnl)||0}"></div><div class="field"><label>Baseline as of</label><input data-pos="${id}" data-key="baselineDate" data-pos-type="date" type="date" value="${esc(a.baselineDate||'')}"></div></div><div class="locked-price"><span>${basisName()}</span><strong>${live&&p.price?fmt(p.price,4):'Waiting for sync'}</strong></div><div class="quote-meta"><b>${quoteState(id)}</b><span>${quoteDetails(id)}</span></div><div class="position-summary"><div><span>Current shares</span><strong>${num(p.shares)}</strong></div><div><span>Current avg</span><strong>${p.avg?fmt(p.avg,4):'—'}</strong></div><div><span>Market value</span><strong>${live?fmt(p.value,2):'—'}</strong></div><div><span>Unrealised</span><strong class="${p.unreal>=0?'positive':'negative'}">${live?fmt(p.unreal,2):'—'}</strong></div></div></div>`}).join(''):'<div class="empty-portfolio"><strong>No positions yet</strong>Add a holding above to create its position card.</div>';const rows=[...state.transactions].filter(t=>assetById(t.asset)).sort((a,b)=>new Date(b.date)-new Date(a.date)||Number(b.createdAt||0)-Number(a.createdAt||0));const totalPages=Math.max(1,Math.ceil(rows.length/TRADE_PAGE_SIZE));tradePage=Math.min(Math.max(0,tradePage),totalPages-1);const pageRows=rows.slice(tradePage*TRADE_PAGE_SIZE,(tradePage+1)*TRADE_PAGE_SIZE);$('#tradeBody').innerHTML=pageRows.length?pageRows.map(t=>`<tr><td>${dateFmt(t.date)}</td><td class="${t.type==='buy'?'positive':'amber'}">${t.type.toUpperCase()}</td><td>${esc(META[t.asset]?.ticker||t.asset)}${META[t.asset]?.archived?' <small class="amber">ARCHIVED</small>':''}</td><td>${num(t.shares)}</td><td>${fmt(t.price,4)}${t.estimated?' <small class="amber">EST</small>':''}</td><td>${fmt(t.fee||0,2)}</td><td>${ledger[t.id]?.realized==null?'—':`<span class="${ledger[t.id].realized>=0?'positive':'negative'}">${ledger[t.id].realized>=0?'+':''}${fmt(ledger[t.id].realized,2)} · ${pct(ledger[t.id].realizedPct,2)}${ledger[t.id].overridden?' <small class="amber">MANUAL</small>':''}</span>`}</td><td><button class="delete" data-del="${t.id}">Delete</button></td></tr>`).join(''):'<tr><td colspan="8"><div class="empty">No recorded trades yet.<br>Your baseline holdings still calculate unrealised P&amp;L.</div></td></tr>';const pager=$('#tradePagination');if(pager)pager.innerHTML=rows.length>TRADE_PAGE_SIZE?`<span>${rows.length} trades · page ${tradePage+1} of ${totalPages}</span><div style="display:flex;gap:8px"><button class="btn" data-page-action="prev"${tradePage===0?' disabled':''}>‹ Prev</button><button class="btn" data-page-action="next"${tradePage>=totalPages-1?' disabled':''}>Next ›</button></div>`:'';renderTradePreview();renderNextOrder()}
 function renderNextOrder(){
  const titleEl=$('#nextOrderTitle'),listEl=$('#nextOrder');if(!listEl)return;
  const monthly=monthlyTotal();
@@ -982,7 +1100,12 @@ function renderMonthlyHeatmap(){
 }
 function renderWhatIfBacktest(){
  const el=$('#whatIfGrid');if(!el)return;
- const invested=grossInvested(),live=!!state.market.lastUpdated,tv=live?totalValue():null;
+ const {contributed:invested,cash:withdrawn}=netCapitalLedger(),live=!!state.market.lastUpdated;
+ // Sale proceeds that were never reinvested left the portfolio, so totalValue()
+ // alone understates what the same contributions actually produced. The
+ // benchmark rows below carry that cash in their value, so this row must too —
+ // otherwise selling anything makes your own return look artificially terrible.
+ const tv=live?totalValue()+withdrawn:null;
  const actualReturn=invested>0&&tv!=null?(tv/invested-1)*100:null;
  const rows=[{label:'Your portfolio',invested:invested>0?invested:null,value:tv,ret:actualReturn,coverage:null}];
  for(const [key,label] of[['qqq','Nasdaq-100'],['spy','S&P 500']]){
@@ -1014,7 +1137,7 @@ $('#registerForm').addEventListener('submit',async event=>{event.preventDefault(
 $('#logoutBtn').addEventListener('click',async()=>{try{await apiRequest('/api/auth/logout',{method:'POST',body:'{}'})}finally{authUser=null;storage.removeItem(STORAGE);location.reload()}});
 
 $$('[data-page]').forEach(b=>b.addEventListener('click',()=>switchPage(b.dataset.page)));$$('[data-jump]').forEach(b=>b.addEventListener('click',()=>switchPage(b.dataset.jump)));$('#settingsBtn').onclick=openSettings;if($('#marketSettingsBtn'))$('#marketSettingsBtn').onclick=openSettings;$('#testConnectionBtn').onclick=testConnection;$('#closeSettings').onclick=closeSettings;$('#settingsModal').addEventListener('click',e=>{if(e.target.id==='settingsModal')closeSettings()});$('#syncBtn').onclick=()=>syncMarket(true,false,true);$('#positionsSyncBtn').onclick=()=>syncMarket(true,false,true);
-$('#saveSettings').onclick=()=>{state.market.provider='proxy';state.market.twelveKey='';state.market.apiKey='';state.market.autoRefresh=false;state.market.priceBasis='last';state.market.exchange='EUR';state.profile.name=$('#setName').value.trim()||authUser?.name||'Investor';state.profile.goal=Math.max(1000,Number($('#setGoal').value)||100000);state.profile.expectedReturn=Number($('#setExpected').value)||8;state.profile.riskFreeRate=Number($('#setRf').value)||2;state.profile.startDate=$('#setStart').value||TODAY;state.market.lastError='';save();closeSettings();setupTimer();renderAll();toast('Settings saved.')};
+$('#saveSettings').onclick=()=>{state.market.provider='yahoo';state.market.autoRefresh=false;state.market.priceBasis='last';state.market.exchange='EUR';state.profile.name=$('#setName').value.trim()||authUser?.name||'Investor';state.profile.goal=Math.max(1000,Number($('#setGoal').value)||100000);state.profile.expectedReturn=Number($('#setExpected').value)||8;state.profile.riskFreeRate=Number($('#setRf').value)||2;state.profile.startDate=$('#setStart').value||TODAY;state.market.lastError='';save();closeSettings();setupTimer();renderAll();toast('Settings saved.')};
 $('#savePositionsBtn').onclick=()=>{$$('[data-pos]').forEach(i=>state.assets[i.dataset.pos][i.dataset.key]=i.dataset.posType==='date'?i.value:Number(i.value)||0);save();renderAll();toast('Positions saved')};$('#positionGrid').addEventListener('click',e=>{const id=e.target.dataset.reset;if(!id)return;if(confirm(`Reset ${META[id].ticker} baseline and delete its trades?`)){state.assets[id].baselineShares=0;state.assets[id].baselineAvgPrice=0;state.assets[id].baselineRealizedPnl=0;state.assets[id].baselineDate='';state.transactions=state.transactions.filter(t=>t.asset!==id);save();renderAll()}});
 ['txShares','txPrice','txFee','txType','txRealizedOverride'].forEach(id=>$('#'+id).addEventListener('input',renderTradePreview));$('#txAmount').addEventListener('input',()=>{const amt=Number($('#txAmount').value),pr=Number($('#txPrice').value);if(amt>0&&pr>0){$('#txShares').value=(amt/pr).toFixed(6);renderTradePreview()}});$('#txPrice').addEventListener('input',()=>{const amt=Number($('#txAmount').value),pr=Number($('#txPrice').value);if(amt>0&&pr>0)$('#txShares').value=(amt/pr).toFixed(6);renderTradePreview()});$('#txShares').addEventListener('input',()=>{if($('#txShares').value)$('#txAmount').value='';renderTradePreview()});$('#txAsset').addEventListener('change',()=>{const p=replay($('#txAsset').value);if(p.price)$('#txPrice').value=p.price.toFixed(4);renderTradePreview()});$('#tradeForm').addEventListener('submit',e=>{e.preventDefault();const asset=$('#txAsset').value,type=$('#txType').value,date=$('#txDate').value,shares=Number($('#txShares').value),price=Number($('#txPrice').value),fee=Number($('#txFee').value)||0,overrideRaw=$('#txRealizedOverride').value,realizedPnlOverride=type==='sell'&&overrideRaw!==''?Number(overrideRaw):null;if(!asset||!state.assets[asset]){alert('Add a holding first.');return}if(!Number.isFinite(shares)||shares<=0||!Number.isFinite(price)||price<=0){alert('Enter valid shares and execution price.');return}if(type==='sell'&&shares>replay(asset).shares+1e-8){alert(`Only ${num(replay(asset).shares)} shares available.`);return}const tx={id:id(),asset,type,date,shares,price,fee,createdAt:Date.now()};if(realizedPnlOverride!==null&&Number.isFinite(realizedPnlOverride))tx.realizedPnlOverride=realizedPnlOverride;state.transactions.push(tx);save();$('#txShares').value='';$('#txAmount').value='';$('#txFee').value='0';$('#txRealizedOverride').value='';renderAll();const newMtg=monthsToGoal(state.profile.goal,totalValue(),monthlyTotal(),state.profile.expectedReturn);const etaLabel=dateAfterMonths(newMtg);toast(`${type==='buy'?'Buy':'Sell'} recorded · Goal ETA: ${etaLabel}`)});$('#tradeBody').addEventListener('click',e=>{const id=e.target.dataset.del;if(!id)return;if(confirm('Delete this transaction?')){state.transactions=state.transactions.filter(t=>t.id!==id);save();renderAll()}});
 $('#tradePagination').addEventListener('click',e=>{const action=e.target.dataset.pageAction;if(!action)return;if(action==='prev')tradePage=Math.max(0,tradePage-1);else if(action==='next')tradePage=tradePage+1;renderPositions()});
@@ -1027,7 +1150,7 @@ $('#exportBtn').onclick=()=>download(JSON.stringify(state,null,2),`northstar-bac
 window.addEventListener('resize',()=>{if($('#overview').classList.contains('active'))drawMainChart();if($('#lab').classList.contains('active'))renderLab()});document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&state.market.autoRefresh&&hasKey()){const age=state.market.lastUpdated?(Date.now()-new Date(state.market.lastUpdated))/1000:Infinity;if(age>=state.market.refreshSeconds)syncMarket(false,false)}});document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSettings()});
 
 function populateExchangeFilter(){const el=$('#etfExchangeFilter');if(!el||el.dataset.ready)return;for(const [suffix,name] of Object.entries(EUROPEAN_EXCHANGES)){const option=document.createElement('option');option.value=suffix;option.textContent=`${name} (${suffix})`;el.appendChild(option)}el.dataset.ready='1'}
-function populateTradeSelect(){const select=$('#txAsset');if(!select)return;const previous=select.value,ids=Object.keys(state.assets);select.innerHTML=ids.map(id=>`<option value="${esc(id)}">${esc(META[id].ticker)} · ${esc(state.assets[id].exchange||exchangeName(state.assets[id].symbol))}</option>`).join('')||'<option value="">Add a holding first</option>';if(ids.includes(previous))select.value=previous;const submit=$('#tradeForm button[type="submit"]');if(submit)submit.disabled=!ids.length}
+function populateTradeSelect(){const select=$('#txAsset');if(!select)return;const previous=select.value,ids=Object.keys(state.assets);select.innerHTML=ids.map(id=>`<option value="${esc(id)}">${esc(META[id].ticker)} · ${esc(state.assets[id].exchange||exchangeName(state.assets[id].symbol))}</option>`).join('')||'<option value="">Add a holding first</option>';const stillValid=ids.includes(previous);if(stillValid)select.value=previous;else if(previous){['txShares','txPrice','txFee','txAmount','txRealizedOverride'].forEach(id=>{const el=$('#'+id);if(el)el.value=''})}const submit=$('#tradeForm button[type="submit"]');if(submit)submit.disabled=!ids.length;renderTradePreview()}
 function targetTotal(){return Object.values(state.assets).reduce((n,a)=>n+(Number(a.target)||0),0)*100}
 function refreshTargetSummary(){
  const ids=Object.keys(state.assets);
@@ -1086,12 +1209,12 @@ function removeEtf(id){
  const asset=state.assets[id];
  if(!asset)return;
  const hasData=Number(asset.baselineShares)>0||state.transactions.some(transaction=>transaction.asset===id);
- const warning=hasData?`Remove ${META[id].ticker} and permanently delete its holdings and trades?`:`Remove ${META[id].ticker} from the portfolio?`;
+ const warning=hasData?`Remove ${META[id].ticker} from your active allocation? Its trade history and past performance stay intact — this only stops it being managed as a current target.`:`Remove ${META[id].ticker} from the portfolio?`;
  if(!confirm(warning))return;
+ if(hasData){state.archivedAssets=state.archivedAssets||{};state.archivedAssets[id]=asset}
  delete state.assets[id];
- state.transactions=state.transactions.filter(transaction=>transaction.asset!==id);
  if(Object.keys(state.assets).length)normalizeTargets();
- rebuildMeta();save();renderAll();toast('Holding removed and remaining targets were rebalanced proportionally.');
+ rebuildMeta();save();renderAll();toast(hasData?'Holding removed from active allocation — its history is preserved.':'Holding removed and remaining targets were rebalanced proportionally.');
 }
 function renderSearchResults(results,message=''){const el=$('#etfSearchResults');if(!el)return;if(message){el.innerHTML=`<div class="empty-portfolio"><strong>${esc(message)}</strong>Search the local catalog or add an exact exchange symbol.</div>`;return}const kindLabel=k=>k==='stock'?'Stock':k==='etf'?'ETF':'';el.innerHTML=results.length?results.map((item,index)=>`<div class="etf-result"><div class="etf-result-main"><strong>${esc(item.ticker||item.symbol)} · ${esc(item.exchange)}${kindLabel(item.kind)?` · ${kindLabel(item.kind)}`:''}</strong><p title="${esc(item.name)}">${esc(item.name)}</p><small>${esc(item.symbol)}${item.isin?` · ${esc(item.isin)}`:''}${item.nativeCurrency?` · ${esc(item.nativeCurrency)}`:''}</small></div><button class="btn" type="button" data-add-search="${index}">Add</button></div>`).join(''):'<div class="empty-portfolio"><strong>No European instrument found</strong>Try the name, ticker, or ISIN.</div>';el._results=results}
 async function searchEtfs(){const query=$('#etfSearchInput').value.trim(),exchange=$('#etfExchangeFilter').value;if(query.length<2){renderSearchResults([],'Enter at least two characters');return}const button=$('#etfSearchBtn');button.disabled=true;button.textContent='Searching…';try{const params=new URLSearchParams({q:query});if(exchange)params.set('exchange',exchange);const data=await apiRequest(`/api/market/search?${params}`);renderSearchResults(data.results||[])}catch(error){renderSearchResults([],error.message||'Search failed')}finally{button.disabled=false;button.textContent='Search'}}
@@ -1149,8 +1272,6 @@ $('#normalizeTargetsBtn').addEventListener('click',()=>{
 });
 /* NORTHSTAR_V23_TARGET_EVENTS_END */
 /* NORTHSTAR_V20_TARGET_EVENTS_END */
-$('#selectedEtfList').addEventListener('click',event=>{const id=event.target.dataset.removeEtf;if(id)removeEtf(id)});
-$('#normalizeTargetsBtn').addEventListener('click',()=>{if(!Object.keys(state.assets).length){toast('Add a holding first.','warn');return}normalizeTargets();save();renderAll();toast('Targets balanced to 100%.')});
 
 function startApp(){if(appStarted)return;appStarted=true;$('#txDate').value=TODAY;$('#monthlyRange').value=monthlyTotal()||600;$('#returnRange').value=state.profile.expectedReturn;$('#deadlineRange').value=state.profile.goalYears;$('#horizonRange').value=state.profile.horizon;$('#extraDecisionRange').value=Number(state.ui.extraMonthly??100);$$('#chartMode button').forEach(b=>b.classList.toggle('active',b.dataset.mode===state.ui.chartMode));state.market.autoRefresh=false;renderAll();setupTimer();if(Object.keys(state.assets).length)syncMarket(false,false,false);loadCatalog()}
 bootstrapAuth().finally(()=>requestAnimationFrame(finishAuthBootstrap))

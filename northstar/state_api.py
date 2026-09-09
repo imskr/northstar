@@ -132,6 +132,8 @@ def save_state():
     state_without_trades.pop("transactions", None)
     market = state_without_trades.get("market")
     if isinstance(market, dict):
+        # Northstar only talks to Yahoo Finance now; these are legacy per-user
+        # provider keys that older clients may still be sending. Never persist them.
         for key in ("apiKey", "eodhdKey", "twelveKey"):
             market.pop(key, None)
 

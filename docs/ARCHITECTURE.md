@@ -35,13 +35,13 @@ independently queryable and auditable.
 `northstar/market_provider.py` resolves quotes and history in strict priority
 order:
 
-1. **Twelve Data** — real-time, only when an API key is configured.
-2. **Yahoo Finance** (via yfinance) — delayed, free, the default.
-3. **Stooq** — delayed, best-effort last resort.
+1. **Yahoo Finance** (via yfinance) — delayed, free, no API key.
+2. **Stooq** — delayed, best-effort last resort.
 
-All prices are normalised to EUR. `/api/market` is authenticated and
-same-origin, keeping provider details out of the browser and preventing
-public-endpoint abuse.
+All prices are normalised to EUR, including non-EUR listings: the quote currency
+is converted at a `<CCY>EUR=X` rate fetched from the same provider and cached.
+`/api/market` is authenticated and same-origin, keeping provider details out of
+the browser and preventing public-endpoint abuse.
 
 ## Local versus production database
 

@@ -1,5 +1,253 @@
 # Changelog
 
+## 2.3.5 - 2026-09-09
+
+- **Fixed (significant):** a suspended holding inflated the whole portfolio's
+  volatility, and through it the Monte Carlo projection. `riskMetrics()` builds
+  daily returns from the date-intersection of every holding's price history, but
+  `returnsFromPrices()` never looked at how far apart consecutive rows actually
+  were. A holding that stops trading leaves months-long gaps in that
+  intersection, and the move across a gap was treated as a single day's return
+  and annualised by `sqrt(252)`. On a real portfolio holding Nebius — suspended
+  from April to October 2024, then again into January 2025 — two rows spanning
+  191 and 91 calendar days contributed "daily" returns of +45.99% and +39.27%,
+  pushing measured volatility from 46.3% to 65.4%.
+
+  That number is the Monte Carlo's volatility input, where it does real damage:
+  volatility drag on the median path is `0.5 * sigma^2`, so at 60.5% the drag is
+  18.3%/yr against a 12% expected return and the median path *falls* 6.2%/yr.
+  The €100k goal at €1,000/month consequently showed a median crossing at 9.3
+  years instead of 7.4. Daily statistics — volatility, Sortino, beta,
+  correlation and worst-day — now use only rows spanning five calendar days or
+  fewer (a normal weekend or holiday), while cumulative growth and max drawdown
+  keep every step, since those moves genuinely happened.
+
+- **Fixed:** CAGR annualised over `arr.length/252`, treating the number of
+  observations as if it were a gap-free trading calendar. With a suspended
+  holding the period was badly wrong, and even for an unbroken weekday series
+  260 observations were divided as 1.03 years. Now measured from the actual
+  first-to-last date span.
+
+- **Note, not a defect:** a portfolio of high-volatility single names will show a
+  median well below its own expected-return line, and can show the goal moving
+  *further away* when contributions are redirected into the more volatile
+  holdings — with no open positions, `weight()` falls back to each holding's
+  target, and editing the per-asset monthly amounts rewrites those targets via
+  `targetsFromMonthlyAmounts()`, so the volatility basis follows the split.
+  Moving €300/month into a 100%-volatility name takes this portfolio from 46.2%
+  to 63.0% volatility and the median goal date from 5.8 to 7.3 years, despite
+  the larger contribution. That is the model correctly pricing the extra risk,
+  not an error — but it is worth knowing that the two controls interact.
+
+## 2.3.4 - 2026-09-09
+
+Monte Carlo audit. The engine itself checks out: over 1,000,000 draws the
+Box-Muller sampler gives mean 0.0008, stdev 0.99981, skew -0.003, excess
+kurtosis 0.0016, tail masses matching the normal CDF out to 3 sigma, and no
+serial correlation (lag-1 -0.0011, lag-2 0.0012); mulberry32 passes a
+100-bin chi-square. With contributions switched off the terminal distribution
+matches the closed-form lognormal to within 0.4% on the mean and median.
+`Float64Array.prototype.sort()` was confirmed numeric rather than
+lexicographic. Three defects around it, though:
+
+- **Fixed (significant):** the simulation was not anchored to the assumption it
+  claimed. Its comment stated the mean path matches "the same deterministic
+  monthly growth factor futureValue() uses", but `runMonteCarlo()` compounded
+  `(1+r)^(1/12)` per month while `futureValue()` — and `monthsToGoal()`,
+  `monthlyNeeded()`, the milestone table and the Base projection line — all use
+  a nominal `r/12`. The same "8%" input therefore drove the fan at 8.00%/yr and
+  every other projection at 8.300%/yr, so the fan sat below its own Base case:
+  -1.57% on the mean at 10 years, -4.12% at 20 years, and -8.95% at a 12%
+  return. The Itô correction was implemented correctly; it was simply anchoring
+  to a different target. Now uses `1+annualReturnPct/100/12`, bringing every
+  scenario tested (0%-30%, 10-30 years) within 0.46% of `futureValue()` — the
+  residual being sampling error on the mean of 10,000 lognormal paths.
+
+- **Fixed (significant):** "Chance of hitting goal by target date" measured the
+  wrong event. `monteCarloGoalProbability()` tested only whether a path's value
+  stood at or above the goal *on* the deadline, so every path that reached the
+  goal earlier and then dipped was counted as a miss. For a €100k goal from
+  €20k at €700/month, the true chance of reaching it within 8 years is 80.3%
+  but the card read 72.0%; at 10 years 94.3% against 88.5%. Now measures first
+  crossing at any point up to the deadline, walking month-major with a
+  `reached[]` flag so each column is scanned once. Verified monotonically
+  non-decreasing as the deadline extends.
+
+- **Fixed:** the goal deadline could fall outside the simulation. The deadline
+  slider runs to 20 years while the horizon slider starts at 10, and the
+  probability lookup clamped to the last simulated month — so with a 10-year
+  chart horizon, deadlines of 10, 15 and 20 years all reported the identical
+  10-year figure (93.8%) under their own labels, against a true 99.7% at 20
+  years. The simulation now runs to `max(horizon, deadline)` months and the fan
+  chart is sliced back to the requested horizon, so the goal question is
+  answered at its real date and the answer no longer depends on the chart's
+  zoom.
+
+- **Note, not a defect:** the median outcome sits well below the Goal Lab's
+  deterministic figure for the same inputs — about 1.3%/yr lower at 16%
+  volatility. That is the arithmetic-versus-geometric gap inherent to a
+  lognormal process, and follows from the deliberate choice (kept, and now
+  actually honoured) to anchor the *mean* path to the Base projection. Half the
+  paths landing under the straight-line projection is the correct behaviour, not
+  a bug.
+
+## 2.3.3 - 2026-09-09
+
+- **Fixed (critical):** no non-EUR listing could be priced at all. `_yf_history()`
+  derived the quote currency via `_symbol_parts()`, which raises for any symbol
+  without a European exchange suffix — and FX pairs like `GBPEUR=X` have none. So
+  every currency conversion died with "Unsupported European exchange symbol",
+  taking down all 13 non-EUR venues (London, SIX, Stockholm, Oslo, Copenhagen,
+  Warsaw, Prague, Budapest, Istanbul, Bucharest, Iceland) despite the README
+  promising "GBP, CHF, SEK… converted so every position is comparable". Verified
+  live: `VUSA.L` now prices at GBP 107.10 → EUR 124.57 (fx 1.1631) and `NESN.SW`
+  at CHF 78.97 → EUR 83.97 (fx 1.0633).
+
+- **Removed:** Twelve Data. Northstar now relies solely on Yahoo Finance, with
+  Stooq as the last-resort fallback. This drops ~410 lines from
+  `market_provider.py` and ~130 from `market_api.py`: the per-request `?twkey=`
+  plumbing, `real_time_configured()`, `MarketEntitlementError`, all
+  `_twelve_*` helpers, the Twelve-only `normalize_quote_batch()` /
+  `normalize_history_batch()` entry points, `twelve_diagnostics()`, and the
+  `prefer_realtime` parameter threaded through the provider chain. Also removes
+  a live bug: `fetchAssetBatch()` called `fetchTwelveBatch()`, which was never
+  defined anywhere — any user who had entered a key hit a `ReferenceError` on
+  every sync (swallowed by the surrounding catch, so it silently degraded).
+  Since the browser no longer talks to any provider directly, the CSP
+  `connect-src` is tightened from allowing `api.twelvedata.com` and two Yahoo
+  hosts down to `'self'`.
+
+- **Fixed (critical):** archiving a holding corrupted every historical return.
+  `portfolioValueAsOfDate()` valued archived holdings, but
+  `calendarYearCashFlows()`, `monthCashFlows()`, `trackedCalendarYears()`,
+  `compoundingGapSeries()` and `doNothingComparison()` all iterated
+  `state.assets` alone — so an archived holding's purchase cost vanished while
+  its value stayed on the books, and the gain it paid for was booked as free
+  appreciation. In a test scenario, archiving one holding flipped 2025's
+  Calendar XIRR from −2.54% to **+103.27%** and the heatmap's annual figure from
+  −4.10% to **+123.85%**. All cash-flow builders now iterate the same
+  active-plus-archived union the valuation does; verified identical results
+  before and after archiving.
+
+- **Fixed (critical):** archiving a holding you still owned wiped its value from
+  every total. `positions()` iterated active holdings only, so `totalValue()`,
+  `totalPnl()` and the terminal flow of `portfolioXirr()` silently dropped
+  still-open archived shares while their purchase costs remained in the cash
+  flows — sending Portfolio XIRR from +2.55% to **−32.32%**. `positions()` now
+  covers every holding you still own; allocation, drift and the donut weigh
+  against a new `activeValue()` so the managed plan still sums to 100%.
+  Archived holdings with open shares are included in the price sync and shown
+  in the holdings grid, marked "retired from plan", so the cards reconcile with
+  the headline total.
+
+- **Fixed (significant):** the "What if you'd bought the index instead?" card
+  compared unlike quantities. `whatIfBacktest()` counts un-reinvested sale
+  proceeds as cash inside the hypothetical benchmark position, but the "Your
+  portfolio" row used bare `totalValue()`, which excludes money already
+  withdrawn. A €12,067 sale left near the end of the history reported your own
+  return as **−32.75%** against +60.02% for Nasdaq-100, when the portfolio was
+  genuinely up **+3.74%**. `netContributedCapital()` is now
+  `netCapitalLedger()`, returning both the contributed figure and the
+  un-recycled `cash`; the portfolio row adds that cash back, and the result
+  reconciles exactly with `personalReturn()`.
+
+- **Fixed (significant):** "The compounding gap" chart claimed a loss the moment
+  you sold anything. The invested line summed every buy and never came down,
+  while the value line dropped by each sale — after one €12,067 sell it showed
+  €22,238 of value against €33,066 "invested", implying a €10,828 loss on a
+  portfolio actually up €1,238. The invested line is now net cash put in
+  (buys minus proceeds), so the gap between the two lines equals total P&L to
+  the cent.
+
+- **Fixed:** the monthly-returns heatmap extrapolated partial months. A month's
+  XIRR was de-annualised by a flat `^(1/12)` regardless of how much of it the
+  cash flows covered, so the first month of tracking always read high: entering
+  on 5 January and gaining a true 1.026% by month end displayed as **+1.20%**.
+  Returns are now de-annualised over the span the flows actually cover. The
+  period start is also dated on the day it was measured — the prior month's
+  last close, not the 1st — so the window matches the price movement it
+  represents. Whole months now land within 0.001pp of Modified Dietz.
+
+- **Fixed:** the Portfolio XIRR card's caption read "Gross invested €X" — the
+  correct "Money-weighted, since first cash flow" was written, then overwritten
+  five lines later by a stray assignment to the same element. The gross-invested
+  figure moved to the P&L card's caption, where it belongs.
+
+- **Fixed:** the Year in Review "best month" slide hard-coded a `+` sign, so a
+  year whose best month was still negative rendered as "+-2.3%". It now carries
+  the real sign and switches to the red slide.
+
+- **Fixed:** duplicate click handlers on the allocation editor. Both a
+  `closest()`-based and a `dataset`-based listener were bound to
+  `#selectedEtfList`, so cancelling a "Remove holding" confirmation immediately
+  re-asked; `#normalizeTargetsBtn` likewise fired twice and toasted twice.
+
+- **Verified unchanged:** XIRR (matches an independent actual/365 bisection to
+  14 decimal places), volatility, max drawdown, CAGR, Sharpe, Sortino, beta,
+  correlation and 21-day momentum (all match a NumPy reference), and the Monte
+  Carlo simulation (Itô-corrected mean path within 3% of `futureValue()`, and
+  `Float64Array.prototype.sort()` confirmed numeric, not lexicographic).
+
+## 2.3.2 - 2026-09-09
+
+- **Fixed (significant):** the "What if you'd bought the index instead?" card
+  (and, via the same root cause, `grossInvested()`) treated every buy as fresh
+  outside capital, even when it was funded by selling something else first.
+  Sell a position and reinvest the proceeds into a different holding, and the
+  same money got counted twice — once as the original purchase, once as the
+  reinvestment — inflating "Invested" and making "Total return" look far worse
+  than reality. Traced to a real user report: selling all of one holding and
+  reinvesting the proceeds into another showed an alarming double-digit
+  negative return that didn't match what actually happened.
+
+  Fixed with a new `netContributedCapital()` that simulates the same cash
+  recycling `whatIfBacktest()` now also correctly does — a sell frees up
+  simulated cash that funds the next buy before any of it counts as a fresh
+  contribution. `grossInvested()` is left as-is (still used where "every euro
+  ever spent buying things" is the intended meaning); the What-If card's "Your
+  portfolio" column now uses the corrected net figure instead, so all three
+  columns are compared on the same fair, non-inflated basis. Caught a bug in
+  my own first attempt at this fix before shipping it — an early version used
+  a naive running-sum instead of properly simulating the recycling, verified
+  wrong by hand-checking the numbers rather than trusting the logic. The
+  corrected version is verified: in a test scenario mirroring the report,
+  "Total return" swung from a fabricated -8.50% to a real +13.75%, and
+  `whatIfBacktest()`'s contributed figure now exactly matches
+  `netContributedCapital()`, confirming a fair comparison across all three
+  columns. Also confirmed no change at all for the common case of a portfolio
+  with no sells.
+
+- **Reapplied 2.3.0 (archived-assets fix) and 2.3.1 (trade-form dropdown
+  safety fix)** — this upload predated both. See below for details; both were
+  re-verified against this file specifically, including a combined scenario
+  exercising the archiving fix and the recycling fix together (an asset
+  bought, sold, archived, with its sale proceeds reinvested elsewhere),
+  confirming `portfolioXirr()` and `netContributedCapital()` are unaffected by
+  archiving, and Calendar XIRR still resolves to NPV≈0 for both years touched
+  by the archived asset.
+
+## 2.3.1 - 2026-09-09
+
+- **Fixed (safety-critical):** the "Add trade" form's Holding dropdown could
+  silently point at the wrong asset after removing a different holding, with
+  the shares/price/fee fields still holding the *previous* asset's numbers —
+  risking a trade recorded against the wrong holding at the wrong price if
+  not caught. Fixed by clearing those fields whenever the previously-selected
+  asset becomes unavailable, and always re-running the trade preview
+  immediately after.
+
+## 2.3.0 - 2026-09-08
+
+- **Fixed (significant):** removing a holding from Positions used to
+  permanently delete every transaction ever recorded for it, silently
+  corrupting Calendar XIRR, since-inception Portfolio XIRR, and total lifetime
+  invested for anyone who ever fully exited and removed a position. Fixed by
+  archiving removed holdings instead of deleting them — `state.archivedAssets`
+  keeps their price history and transaction record intact for historical
+  calculations, while correctly disappearing from active target/allocation
+  management. Verified `portfolioXirr()` computes to the exact same value
+  before and after archiving.
+
 ## 2.2.3 - 2026-09-08
 
 - **Added:** hover tooltip on the Monthly returns heatmap, matching the styled

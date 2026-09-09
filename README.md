@@ -38,7 +38,7 @@ buy the same holdings every month for a decade. It answers three questions, hone
 |---|---|
 | 🗂️ **Open instrument catalog** | ETFs and individual stocks — search by name, ticker, or ISIN across 34 European venues, or add any exchange symbol directly |
 | 💶 **EUR normalisation** | GBP, CHF, SEK… listings converted so every position is comparable |
-| 📈 **Market data, no API key** | Delayed quotes via Yahoo Finance with a Stooq fallback; optional free [Twelve Data](https://twelvedata.com) key for real-time |
+| 📈 **Market data, no API key** | Delayed quotes via Yahoo Finance with a Stooq fallback — nothing to sign up for, nothing to configure |
 | 🧮 **Honest accounting** | Fractional shares, weighted average cost, realised P&L (with optional broker override), per-fund and portfolio XIRR |
 | 🎯 **Goal Lab** | €100k ETA, "one extra decision" slider, milestone dates, compounding map, DCA backtest vs Nasdaq-100 and S&P 500 |
 | 🎲 **Monte Carlo** | 10,000 lognormal paths calibrated to your portfolio's realised volatility, with a percentile fan chart |
@@ -81,7 +81,6 @@ Copy `.env.example` to `.env`. Everything runs with defaults; the notable knobs:
 | `SESSION_SECRET` | *(dev value)* | Cookie signing key — set a long random string in production |
 | `ALLOW_REGISTRATION` | `true` | Set `false` after signup to lock a public deployment to existing accounts |
 | `COOKIE_SECURE` | `false` | Set `true` when served over HTTPS |
-| `TWELVE_DATA_API_KEY` | *(unset)* | Enables real-time quotes; otherwise delayed Yahoo/Stooq data is used |
 | `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` | *(unset)* | Switch persistence from local SQLite to Turso cloud |
 | `NORTHSTAR_DB_PATH` | `data/northstar.db` | Override the local SQLite location |
 
@@ -102,7 +101,7 @@ Flask (northstar/)
   ├─ auth.py             sessions (HttpOnly cookie, SHA-256 token at rest)
   ├─ state_api.py        portfolio state + normalised trades table
   ├─ market_api.py       authenticated quote proxy
-  └─ market_provider.py  Twelve Data → Yahoo Finance → Stooq, EUR-normalised
+  └─ market_provider.py  Yahoo Finance → Stooq, EUR-normalised
         ▼
 SQLite (local) / Turso libSQL (production)
 ```

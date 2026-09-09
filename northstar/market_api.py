@@ -9,15 +9,9 @@ from .auth import login_required
 from .catalog import catalog_stats, list_catalog, resolve_symbol, search_catalog
 from .market_provider import (
     EUROPEAN_EXCHANGES,
-    clear_request_td_key,
     is_supported_symbol,
     normalize,
-    normalize_history_batch,
-    normalize_quote_batch,
     normalize_symbol,
-    real_time_configured,
-    set_request_td_key,
-    twelve_diagnostics,
 )
 
 bp = Blueprint("market_api", __name__, url_prefix="/api")
@@ -27,7 +21,7 @@ def _truthy(value: str | None) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _fallback_many(
+def _fetch_many(
     symbols: list[str], range_: str, *, include_history: bool, fresh: bool
 ) -> tuple[dict[str, dict], dict[str, str]]:
     data: dict[str, dict] = {}
@@ -41,7 +35,6 @@ def _fallback_many(
                 range_,
                 force=fresh,
                 include_history=include_history,
-                prefer_realtime=False,
             ): symbol
             for symbol in symbols
         }
@@ -57,21 +50,6 @@ def _fallback_many(
 @bp.get("/market")
 @login_required
 def market():
-    # Accept a user-supplied Twelve Data key via ?twkey= so users without
-    # server-side env vars can still get real-time prices by entering their
-    # free key in Settings.
-    user_td_key = request.args.get("twkey", "").strip()
-    if user_td_key:
-        set_request_td_key(user_td_key)
-
-    try:
-        return _market_handler()
-    finally:
-        if user_td_key:
-            clear_request_td_key()
-
-
-def _market_handler():
     symbols = list(
         dict.fromkeys(
             normalize_symbol(value) for value in request.args.get("symbols", "").split(",") if value.strip()
@@ -92,32 +70,12 @@ def _market_handler():
     include_history = mode == "history"
     fresh = _truthy(request.args.get("fresh")) and not include_history
 
-    data: dict[str, dict] = {}
-    live_issues: dict[str, str] = {}
-    final_errors: dict[str, str] = {}
-    configured = real_time_configured()
-
-    # One exchange-qualified Twelve Data batch request is faster and more reliable than
-    # issuing one request per symbol from a shared Render egress IP.
-    if configured:
-        try:
-            if include_history:
-                data, live_issues = normalize_history_batch(symbols, range_)
-            else:
-                data, live_issues = normalize_quote_batch(symbols)
-        except Exception as exc:
-            live_issues = {symbol: str(exc) for symbol in symbols}
-
-    remaining = [symbol for symbol in symbols if symbol not in data]
-    if remaining:
-        fallback_data, fallback_errors = _fallback_many(
-            remaining,
-            range_,
-            include_history=include_history,
-            fresh=fresh,
-        )
-        data.update(fallback_data)
-        final_errors.update(fallback_errors)
+    data, errors = _fetch_many(
+        symbols,
+        range_,
+        include_history=include_history,
+        fresh=fresh,
+    )
 
     if not data:
         message = (
@@ -130,44 +88,19 @@ def _market_handler():
                 "error": message,
                 "freshRequested": fresh,
                 "mode": mode,
-                "realTimeConfigured": configured,
-                "liveIssues": live_issues,
-                "errors": final_errors,
+                "errors": errors,
             }
         ), 503
 
     providers = sorted({str(item.get("provider") or "Market provider") for item in data.values()})
-    realtime = bool(data) and all(bool(item.get("realtime")) for item in data.values())
     warnings: list[str] = []
-    if not configured and not include_history:
-        warnings.append(
-            "No entitled real-time feed is configured; Stooq/Yahoo supplied the latest available delayed data where possible."
-        )
-    elif live_issues and not include_history:
-        details = "; ".join(f"{symbol}: {message}" for symbol, message in live_issues.items())
-        warnings.append(
-            f"Twelve Data live feed was unavailable ({details}). A delayed fallback was used where possible."
-        )
-    elif not include_history and not realtime:
-        warnings.append("Latest available quotes were synced, but the selected feed is delayed.")
-    if final_errors:
-        warnings.append(f"{len(final_errors)} symbol request(s) could not be refreshed.")
+    if errors:
+        warnings.append(f"{len(errors)} symbol request(s) could not be refreshed.")
 
-    diagnostic_parts = []
-    if live_issues:
-        diagnostic_parts.append(
-            "Twelve Data: " + " | ".join(f"{symbol}: {message}" for symbol, message in live_issues.items())
-        )
-    if final_errors:
-        diagnostic_parts.append(
-            "Fallbacks: " + " | ".join(f"{symbol}: {message}" for symbol, message in final_errors.items())
-        )
-    if not diagnostic_parts:
-        diagnostic_parts.append(
-            "Live provider request completed successfully."
-            if realtime
-            else "A delayed provider supplied the latest available quote."
-        )
+    if errors:
+        diagnostic = " | ".join(f"{symbol}: {message}" for symbol, message in errors.items())
+    else:
+        diagnostic = "Yahoo Finance supplied the latest available quote."
 
     return jsonify(
         {
@@ -175,13 +108,11 @@ def _market_handler():
             "updatedAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             "freshRequested": fresh,
             "mode": mode,
-            "realtime": realtime,
-            "realTimeConfigured": configured,
+            "realtime": False,
             "warnings": warnings,
-            "diagnostic": " ".join(diagnostic_parts),
+            "diagnostic": diagnostic,
             "data": data,
-            "liveIssues": live_issues,
-            "errors": final_errors,
+            "errors": errors,
         }
     )
 
@@ -195,41 +126,32 @@ def market_status():
     if not is_supported_symbol(symbol):
         return jsonify({"error": "Unsupported European exchange symbol."}), 400
 
-    twelve = twelve_diagnostics(symbol)
-    fallback: dict = {"ok": False}
+    result: dict = {"ok": False}
     try:
-        quote = normalize(
-            symbol,
-            "5d",
-            force=True,
-            include_history=False,
-            prefer_realtime=False,
-        )
-        fallback = {
+        quote = normalize(symbol, "5d", force=True, include_history=False)
+        result = {
             "ok": True,
             "provider": quote.get("provider"),
             "price": quote.get("price"),
             "marketTime": quote.get("marketTime"),
-            "realtime": bool(quote.get("realtime")),
             "delayed": bool(quote.get("delayed")),
             "source": quote.get("source"),
             "providerErrors": quote.get("providerErrors") or [],
         }
     except Exception as exc:
-        fallback = {"ok": False, "error": str(exc)}
+        result = {"ok": False, "error": str(exc)}
 
-    ok = bool(twelve.get("ok") or fallback.get("ok"))
+    ok = bool(result.get("ok"))
     return jsonify(
         {
             "ok": ok,
             "symbol": symbol,
             "message": (
-                "At least one market-data route returned a usable quote."
+                "Yahoo Finance returned a usable quote."
                 if ok
-                else "Neither Twelve Data nor the free delayed fallbacks returned a usable quote."
+                else "Neither Yahoo Finance nor the Stooq fallback returned a usable quote."
             ),
-            "twelveData": twelve,
-            "fallback": fallback,
+            "quote": result,
         }
     ), 200 if ok else 503
 

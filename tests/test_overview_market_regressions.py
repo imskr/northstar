@@ -1,7 +1,6 @@
 """Regression tests for market-provider ordering and overview valuation logic.
 
 Provider contract (see ``market_provider._load_quote`` / ``_load_history``):
-1. Twelve Data (real-time, requires API key).
 2. Yahoo Finance (delayed, free).
 3. Stooq (delayed, free, best-effort fallback).
 """
@@ -36,7 +35,6 @@ def _stooq_quote_payload(symbol: str) -> dict:
 def test_quote_prefers_yahoo_before_stooq(monkeypatch):
     """Without a real-time key, Yahoo is tried first and wins when it succeeds."""
     calls: list[str] = []
-    monkeypatch.setattr(market_provider, "real_time_configured", lambda: False)
     monkeypatch.delenv("EODHD_API_TOKEN", raising=False)
 
     def yahoo(symbol: str, *_args, **_kwargs):
@@ -52,14 +50,13 @@ def test_quote_prefers_yahoo_before_stooq(monkeypatch):
         lambda *_: (_ for _ in ()).throw(AssertionError("Stooq must only run as fallback")),
     )
 
-    result = market_provider._load_quote("BCFP.DE", prefer_realtime=False)
+    result = market_provider._load_quote("BCFP.DE")
     assert result["provider"] == "Yahoo Finance"
     assert calls == ["yahoo"]
 
 
 def test_quote_falls_back_to_stooq_when_yahoo_fails(monkeypatch):
     calls: list[str] = []
-    monkeypatch.setattr(market_provider, "real_time_configured", lambda: False)
     monkeypatch.delenv("EODHD_API_TOKEN", raising=False)
 
     def yahoo(*_args, **_kwargs):
@@ -73,14 +70,13 @@ def test_quote_falls_back_to_stooq_when_yahoo_fails(monkeypatch):
     monkeypatch.setattr(market_provider, "_yf_history", yahoo)
     monkeypatch.setattr(market_provider, "_stooq_quote", stooq)
 
-    result = market_provider._load_quote("BCFP.DE", prefer_realtime=False)
+    result = market_provider._load_quote("BCFP.DE")
     assert result["provider"] == "Stooq"
     assert calls == ["yahoo", "stooq"]
 
 
 def test_history_falls_back_to_stooq_when_yahoo_fails(monkeypatch):
     calls: list[str] = []
-    monkeypatch.setattr(market_provider, "real_time_configured", lambda: False)
     monkeypatch.delenv("EODHD_API_TOKEN", raising=False)
 
     def yahoo(*_args, **_kwargs):
@@ -94,7 +90,7 @@ def test_history_falls_back_to_stooq_when_yahoo_fails(monkeypatch):
     monkeypatch.setattr(market_provider, "_yf_history", yahoo)
     monkeypatch.setattr(market_provider, "_stooq_history", stooq)
 
-    result = market_provider._load_history("EMSM.DE", "1y", prefer_realtime=False)
+    result = market_provider._load_history("EMSM.DE", "1y")
     assert result["provider"] == "Stooq"
     assert len(result["history"]) == 2
     assert calls == ["yahoo", "stooq"]
