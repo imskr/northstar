@@ -1,5 +1,187 @@
 # Changelog
 
+## 2.3.9 - 2026-09-09
+
+DCA backtest audit. The figures on screen reproduced exactly from the code, so
+the arithmetic was sound; the inputs were not.
+
+- **Fixed:** the window was one month too long. `filterSeriesMonths()` cut at
+  "today minus N months", which lands mid-month and therefore spans N+1 calendar
+  months — so at 1,000 EUR/month a "1 year" DCA charged **13** contributions
+  (13,000 EUR) and "2 years" charged **25** (25,000 EUR). Windows are now taken
+  as whole calendar-month buckets, and a row only renders when the portfolio
+  series covers the full window. On the reference portfolio this moves the 1-year
+  figures from 19,813 EUR / 13,000 EUR / +52.4% to 17,757 EUR / 12,000 EUR /
+  +48.0%, and the 2-year from 76,171 EUR / 25,000 EUR / +204.7% to 68,697 EUR /
+  24,000 EUR / +186.2%.
+
+- **Fixed:** the columns were not comparable. Each series was filtered
+  independently, so a portfolio series shorter than the benchmark inside the
+  window produced a different number of buys — over the same "3 years" the
+  portfolio bought 30 times (30,000 EUR) against the benchmarks' 37 (37,000 EUR)
+  — and the two returns were then differenced into a "vs Nasdaq-100 pp" figure as
+  though they had been measured the same way. All three columns now run on one
+  schedule derived from the portfolio, valued at one end date common to every
+  series; a benchmark that cannot cover that schedule shows a dash instead of a
+  number built on different dates. The contribution count is shown next to the
+  amount ("24,000 EUR · 24×1,000") so the schedule is visible.
+
+- **Disclosed:** `modelSeries()` applies *today's* market-value weights across
+  the entire history, so the backtest is a buy-and-hold index whose starting
+  allocation was chosen with hindsight. It systematically flatters whichever
+  holding has already run up: on the reference portfolio the 2-year DCA returns
+  204.7% on today's weights against **153.9%** on the plan's own target weights,
+  so roughly 50 percentage points of the headline is the weighting artefact
+  rather than the allocation. The panel now says so — it is an illustration of an
+  allocation, not a track record. Left as a disclosure rather than a redesign,
+  since changing the weight basis changes what the metric means.
+
+## 2.3.8 - 2026-09-09
+
+Three bugs that together made the history backfill from 2.3.7 do nothing at all.
+Found by replaying the actual user flow — type the symbol, save, sync — instead
+of testing the pieces in isolation, which is how they slipped through in the
+first place.
+
+- **Fixed:** the Positions save handler wrote **both** symbol fields into
+  `priceSymbol`. `priceSymbol` and `backfillSymbol` share the `symbol` input
+  type, and the handler branched on the type while ignoring `data-key`, so
+  typing a backfill listing silently overwrote the pricing listing and
+  `backfillSymbol` was never persisted. Confirmed against the database: the
+  field read empty after the user had set it.
+
+- **Fixed:** a plain Sync never fetched the backfill. The backfill listing is
+  only requested on a full history sync, but the gate deciding whether to run one
+  asked only "is the last history sync more than a day old, or is some series
+  shorter than two rows". On a freshly synced portfolio both were false, so a new
+  backfill or pricing listing was ignored for up to 24 hours. A full sync now
+  records the listing combination it built the history from
+  (`historyShapedFor`), and the gate refetches whenever the current
+  configuration no longer matches — so the setting takes effect on the next
+  Sync.
+
+- **Fixed:** `index.html` pins the bundle as `app.js?v=26.7` and that string was
+  never bumped across any of this session's changes, so browsers kept serving the
+  previous bundle and the new fields never rendered at all. Now `v=26.8`, with a
+  test asserting the two stay in step.
+
+Verified end to end on the real portfolio state: the sibling listing is suggested
+from the catalog by ISIN (`6RJ0.F` for Rocket Lab, `YDX.F` for Nebius), saving
+persists to the right key, the config change alone triggers the history refetch,
+both backfill listings appear in the request, `6RJ0.DE` goes from 15 rows to 254
+and `YDX.DE` from 70 to 254, the aligned series from 14 rows to 252, the
+performance chart from 15 points to a full year, `riskMetrics()` from null to
+measurable — and the Xetra price is still the one used for valuation. A second
+Sync correctly leaves history alone.
+
+## 2.3.7 - 2026-09-09
+
+- **Added:** holdings can extend a short price history backwards from another
+  listing of the same instrument. Moving to Xetra fixed pricing but Yahoo carries
+  only 15 daily closes for `6RJ0.DE` and 70 for `YDX.DE`, and `alignSeries()`
+  intersects dates across *every* holding — so those 15 rows truncated a 759-row
+  XAIX series and took the whole portfolio down with them: the performance chart
+  collapsed to 15 points spanning three weeks, `riskMetrics()` returned null, and
+  volatility silently fell back to its 16% default. Setting a backfill listing
+  restores 6RJ0.DE to 254 rows (+239 from `6RJ0.F`) and YDX.DE to 254 (+184 from
+  `YDX.F`), taking the aligned series from 14 rows to 252 and the chart from 15
+  points to a full year, with volatility, drawdown and CAGR measurable again.
+  Candidate listings are suggested from the catalog by shared ISIN.
+
+- **Caught during verification:** the first cut of the splice anchored its level
+  ratio on the *latest* shared trading day, which was wrong. The Frankfurt/Xetra
+  relationship is not stable — across the overlap the ratio ranges 0.934 to
+  1.018 for 6RJ0 and 0.938 to 1.102 for YDX, because Frankfurt's book is thin and
+  the two venues close at different times. Anchoring on the latest day picked up
+  a single outlier (0.9338 against a cluster near 0.98) and injected a fabricated
+  -6.6% move at the join, which would have gone straight into volatility and max
+  drawdown. Anchoring on the *earliest* shared day instead is equivalent to
+  carrying the backfill venue's own daily returns backwards from the primary
+  series' first close: the join now reproduces the instrument's real move to
+  1e-9, and all 239/184 backfilled steps preserve the source venue's returns to
+  2.22e-16.
+
+  `priceBasisRatio` keeps the opposite anchor, deliberately: rebasing a whole
+  history onto the pricing venue needs today's history to meet today's price, so
+  it anchors on the latest shared day. `venueRatio()` now takes the anchor as an
+  argument and documents why the two callers differ.
+
+- Primary closes are never rescaled — the pricing venue stays authoritative and
+  only older rows are synthesised. Splicing is refused outright when the two
+  series share no trading day, and the position card reports what happened
+  ("239 extended from 6RJ0.F at ×0.9984", or why it could not be aligned).
+  Verified idempotent across repeated syncs, ascending and duplicate-free, and
+  still subject to the `historySize` window.
+
+- **Note:** backfilled rows carry the source venue's returns, so volatility,
+  drawdown, CAGR and the rebased performance chart are exact. Their absolute
+  levels inherit the anchor day's quote noise as a constant scale, which cancels
+  out of every return and out of any period whose start and end both come from
+  history. Only the current period's opening value mixes a rebased level with a
+  live quote.
+
+## 2.3.6 - 2026-09-09
+
+- **Fixed (critical):** a thin Frankfurt listing inverted a position's P&L. Checked
+  against a real Trade Republic holding — 1.91915 Rocket Lab shares at €57.32,
+  which TR valued at €54.80 — `6RJ0.F` quoted €58.90, **7.48% high**, and
+  Northstar reported the position as a **+€3.03 gain when it was a €4.84 loss**.
+  It is not a timing artifact: on the same timestamp Frankfurt showed +4.2%
+  (56.50 → 58.90) for the day while Xetra showed −3.3% (57.50 → 55.60).
+  `6RJ0.DE` quoted €55.00, within **0.36%** of TR.
+
+  Holdings can now name a separate pricing listing. `priceSymbol` supplies the
+  quote, day-change and market value while `symbol` continues to supply daily
+  history — necessary because Yahoo carries 254 rows for `6RJ0.F` but only 15
+  for `6RJ0.DE`, and `alignSeries()` intersects dates across every holding, so a
+  single short series would collapse volatility, the performance chart, calendar
+  XIRR and the heatmap for the whole portfolio. On the test position this moves
+  the reported unrealised P&L from +€3.03 to −€4.45 against TR's −€4.84.
+
+- Historical levels are rebased onto the pricing venue via a `priceBasisRatio`
+  measured from the most recent date **both** listings actually traded (0.933786
+  for the pair above), applied in `priceAsOfDate()` to the daily history and the
+  locked month-end snapshots alike. Without it, valuing today at one venue while
+  reading historical levels from another leaves a step change at the join that
+  would bias every period return straddling it. Verified continuous:
+  `portfolioValueAsOfDate(today)` and `totalValue()` now agree to 0.000%, where
+  a naive split would have left a 7% gap. Returns-based metrics are provably
+  unaffected — scaling every close by a constant changes no return by more than
+  2.22e-16 — so volatility and CAGR are scale-invariant by construction. The
+  ratio refreshes only on the daily history sync, never from a live quote against
+  a stale close, and is pinned to exactly 1 whenever no pricing listing is set.
+
+- The pricing listing is validated on save against the supported European
+  exchange suffixes, since an unrecognised symbol would otherwise fail silently
+  on every sync and leave the holding unpriced.
+
+### Considered and rejected: the unofficial Trade Republic SDK
+
+Evaluated `github.com/erim32/trade-republic` (v0.0.2, Alpha) as a quote source,
+since Trade Republic routes to LSX and its market data is ISIN-keyed, which
+matches the catalog exactly. Not usable for syncing:
+
+- Login calls `input()` twice for a 2FA code (`tr_api.py:136`, `:143`). There is
+  no TTY in a Flask request or the auto-refresh timer, and TR sessions are
+  short-lived, so this recurs indefinitely. `TRApi(token=…)` does accept an
+  injected session token, so a one-shot terminal run would be possible, but an
+  unattended service is not.
+- No per-instrument daily closes. `get_ticker` returns bid/ask only;
+  `performance` and `portfolioAggregateHistory` do not substitute for the daily
+  series the charts, volatility, calendar XIRR and heatmap require. An LSX quote
+  spliced onto Yahoo Xetra history would reintroduce exactly the join
+  discontinuity the `priceBasisRatio` work above exists to remove.
+- Requires Python 3.13+ against a 3.11/3.12 CI matrix, and pulls pandas, loguru
+  and websockets for what is one bid/ask lookup.
+- The same authenticated session exposes `market_order`, `limit_order`,
+  `stop_market_order`, `cancel_order` and `create_savings_plan`. Storing a phone
+  number and PIN server-side would make a compromise of the host equivalent to
+  live trading access; Northstar currently stores nothing more sensitive than a
+  password hash.
+
+Switching venue captured the 7.48% error for free. The SDK would have bought the
+remaining 0.36%.
+
 ## 2.3.5 - 2026-09-09
 
 - **Fixed (significant):** a suspended holding inflated the whole portfolio's

@@ -184,7 +184,7 @@
 <div class="section"><div><h2>Monthly returns</h2><p>Every month's return, colour-coded — darker means a bigger move either way. The Year column is the compound of that row's own months, not a separate calculation.</p></div></div>
 <div id="monthlyHeatmap"></div>
 
-<div class="section"><div><h2>DCA backtest</h2><p>What your monthly contributions would have compounded to in your holdings vs the benchmark indices.</p></div></div>
+<div class="section"><div><h2>DCA backtest</h2><p>A fixed monthly amount invested into your <em>current</em> allocation over each window, against the same schedule into each index. Because it applies today&rsquo;s weights backwards, it flatters whichever holding has already run up &mdash; it is an illustration of the allocation, not a track record.</p></div></div>
 <article class="card table-wrap"><table><thead><tr><th>Period</th><th>Your portfolio</th><th>Contributed</th><th>Total return</th><th>vs Nasdaq-100</th><th>vs S&amp;P 500</th></tr></thead><tbody id="dcaBacktestBody"><tr><td colspan="6"><div class="empty">Sync 1+ year of price history to run the DCA backtest.</div></td></tr></tbody></table></article>
 <div class="section"><div><h2>What if you'd bought the index instead?</h2><p>Takes your actual contribution dates and amounts and replays them into each benchmark instead — not a fixed monthly amount like the DCA backtest above, your real, irregular buy history.</p></div></div>
 <div class="grid three" id="whatIfGrid"></div>
@@ -213,6 +213,6 @@
  <div class="wrapped-yearnav" id="wrappedYearNav"></div>
  <div class="wrapped-scroll" id="wrappedScroll"></div>
 </div>
-<script src="/static/js/app.js?v=26.7"></script>
+<script src="/static/js/app.js?v=26.8"></script>
 <script src="/static/password_reset.js?v=17.0" defer></script>
 </body></html>

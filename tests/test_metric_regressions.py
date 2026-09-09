@@ -206,3 +206,146 @@ def test_cagr_annualises_over_the_calendar_not_the_observation_count():
     app_js = APP_JS.read_text()
     assert "const years=arr.length/252" not in app_js
     assert "spanDays/365.2425" in app_js
+
+
+def test_a_holding_can_price_off_a_different_listing_than_its_history():
+    """Frankfurt carries years of daily closes for some instruments but quotes them
+    badly: 6RJ0.F sat 7.48% above what Trade Republic showed and reported a losing
+    Rocket Lab position as a +2.76% gain, while 6RJ0.DE matched to 0.36% but has
+    only 15 rows of Yahoo history."""
+    app_js = APP_JS.read_text()
+    assert "function quoteSymbolOf(id)" in app_js
+    assert "function historySymbolOf(id)" in app_js
+    # the quote listing is requested for every sync, the history listing only on a full one
+    assert "const symbols=[...new Set([...quoteSymbols," in app_js
+    assert "...(full?[...historySymbols,...backfillSymbols]:[])" in app_js
+    # a symbol equal to the holding's own listing is stored as "no override"
+    assert "if(a.priceSymbol===a.symbol)a.priceSymbol='';" in app_js
+
+
+def test_historical_levels_are_rebased_onto_the_pricing_venue():
+    """Reading a historical level from one venue while valuing today at another
+    puts a step change at the join, biasing every period return that straddles it.
+    Returns-based metrics are unaffected either way, since a constant multiplier
+    cancels out of a ratio."""
+    app_js = APP_JS.read_text()
+    assert "function priceBasisRatio(a)" in app_js
+    # applied to both the daily history and the locked month-end snapshots
+    assert "if(snapshot!=null)return Number(snapshot)*ratio;" in app_js
+    assert "return best?Number(best.close)*ratio:null;" in app_js
+    # measured on a day both listings traded, not a live quote against a stale close
+    assert "function venueRatio(quoteRows,historyRows,anchor='last')" in app_js
+    # and only refreshed on the daily history sync
+    assert "else if(full&&historyPayload){const ratio=venueRatio(" in app_js
+
+
+def test_pricing_listing_is_validated_before_it_is_saved():
+    """An unsupported listing would silently fail on every sync and leave the
+    holding unpriced."""
+    app_js = APP_JS.read_text()
+    assert "if(value&&!Object.keys(EUROPEAN_EXCHANGES).some(suffix=>value.endsWith(suffix)))" in app_js
+    assert "Not a supported European listing" in app_js
+
+
+def test_a_short_series_can_be_extended_from_a_sibling_listing():
+    """alignSeries() intersects dates across every holding, so a 15-row Xetra
+    listing truncated a 759-row XAIX series and left the performance chart three
+    weeks long, riskMetrics null and volatility on its 16% default."""
+    app_js = APP_JS.read_text()
+    assert "function spliceHistory(primaryRows,backfillRows)" in app_js
+    assert "function backfillSymbolOf(id)" in app_js
+    # sibling listings are suggested from the catalog by shared ISIN
+    assert "function siblingListings(id)" in app_js
+    assert "CATALOG_BY_ISIN" in app_js
+    # the backfill listing is only requested on a full history sync
+    assert "...(full?[...historySymbols,...backfillSymbols]:[])" in app_js
+
+
+def test_splice_anchors_at_the_join_not_the_latest_day():
+    """The venue relationship is noisy — across the Frankfurt/Xetra overlap the
+    ratio ranges 0.934-1.018 for 6RJ0 and 0.938-1.102 for YDX. Anchoring the
+    splice on the latest shared day picked up one outlier (0.9338) and injected a
+    fabricated -6.6% move at the join. Anchoring on the earliest shared day is
+    equivalent to carrying the backfill's own returns backwards from the primary's
+    first close, so the join shows the instrument's real move."""
+    app_js = APP_JS.read_text()
+    assert "function venueRatio(quoteRows,historyRows,anchor='last')" in app_js
+    assert "const ratio=venueRatio(primary,backfill,'first');" in app_js
+    # priceBasisRatio needs the opposite end: today's history must meet today's price
+    assert "const ratio=venueRatio(payload.history,historyPayload.history);" in app_js
+
+
+def test_splice_refuses_without_a_shared_trading_day():
+    """Without a shared date there is no honest way to align two venues' levels,
+    and a wrong one would corrupt every return crossing the join."""
+    app_js = APP_JS.read_text()
+    assert "if(!(ratio>0))return{rows:primary,ratio:null,added:0};" in app_js
+    assert "could not be aligned (no shared trading day)" in app_js
+
+
+def test_symbol_fields_write_to_their_own_key():
+    """priceSymbol and backfillSymbol share the 'symbol' input type, and the save
+    handler wrote both into priceSymbol regardless of data-key — so setting a
+    backfill listing never persisted and the feature silently did nothing."""
+    app_js = APP_JS.read_text()
+    assert "asset[i.dataset.key]=value===String(asset.symbol||'').toUpperCase()?'':value;" in app_js
+    assert "asset.priceSymbol=value===String(asset.symbol||'').toUpperCase()?'':value;" not in app_js
+
+
+def test_changing_a_listing_forces_a_history_resync():
+    """A backfill or pricing listing only takes effect on a full history sync, but
+    the gate only asked "is the last sync a day old" — so a freshly synced
+    portfolio ignored the new setting for up to 24 hours."""
+    app_js = APP_JS.read_text()
+    assert "function historyConfigKey(a)" in app_js
+    assert "function historyConfigStale(a)" in app_js
+    assert "(asset.history||[]).length<2||historyConfigStale(asset)" in app_js
+    # and a full sync records which listing combination it built the history from
+    assert "if(full)a.historyShapedFor=historyConfigKey(a);" in app_js
+
+
+def test_app_js_cache_buster_matches_the_bundle():
+    """index.html pins app.js with a ?v= query string; leaving it stale serves
+    browsers the previous bundle, so new fields never appear at all."""
+    html = pathlib.Path("static/index.html").read_text()
+    assert 'src="/static/js/app.js?v=26.8"' in html
+
+
+def test_dca_window_is_whole_calendar_months():
+    """filterSeriesMonths() cut at "today minus N months", which lands mid-month
+    and therefore spans N+1 calendar months — so a "1 year" DCA charged 13
+    contributions (13,000 EUR at 1,000/month) and "2 years" charged 25."""
+    app_js = APP_JS.read_text()
+    assert "function dcaSchedule(series,months)" in app_js
+    assert "keys.length<months?[]:keys.slice(-months)" in app_js
+    # the row only renders when the portfolio covers the whole window
+    assert "filter(p=>dcaSchedule(ps,p.months).length===p.months)" in app_js
+
+
+def test_dca_columns_share_one_schedule_and_one_end_date():
+    """Each series was filtered independently, so over the same "3 years" the
+    portfolio bought 30 times (30,000 EUR) while the benchmarks bought 37 times
+    (37,000 EUR) — and the two returns were then differenced as though they had
+    been measured the same way."""
+    app_js = APP_JS.read_text()
+    assert "function dcaSimOnSchedule(series,schedule,monthly,endDate)" in app_js
+    assert (
+        "const p=dcaSimOnSchedule(ps,schedule,monthly,endDate),q=dcaSimOnSchedule(qs,schedule,monthly,endDate)"
+        in app_js
+    )
+    # a series that cannot cover the shared schedule yields null, not a partial answer
+    assert "if(firstOfMonth.size!==schedule.length)return null;" in app_js
+    # one valuation date for every column
+    assert "const endDate=[ps,qs,ss].filter(x=>x&&x.length).map(x=>x.at(-1).date).sort()[0];" in app_js
+
+
+def test_dca_discloses_that_it_weights_history_by_todays_allocation():
+    """modelSeries() applies current market-value weights across the whole
+    history, so the backtest flatters whatever has already run up: 204.7% on
+    today's weights against 153.9% on the plan's target weights for the same
+    portfolio and window."""
+    html = pathlib.Path("static/index.html").read_text()
+    assert "not a track record" in html
+    app_js = APP_JS.read_text()
+    # the contribution count is shown alongside the amount
+    assert "· ${p.months}×${fmt(monthly,0)}" in app_js

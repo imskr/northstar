@@ -39,6 +39,7 @@ buy the same holdings every month for a decade. It answers three questions, hone
 | 🗂️ **Open instrument catalog** | ETFs and individual stocks — search by name, ticker, or ISIN across 34 European venues, or add any exchange symbol directly |
 | 💶 **EUR normalisation** | GBP, CHF, SEK… listings converted so every position is comparable |
 | 📈 **Market data, no API key** | Delayed quotes via Yahoo Finance with a Stooq fallback — nothing to sign up for, nothing to configure |
+| 🎚️ **Per-holding price source** | Quote a holding from one listing and chart it from another — thin venues can misprice badly (a Frankfurt listing read 7.5% high and flipped a loss into a gain), with historical levels rebased so the join stays continuous |
 | 🧮 **Honest accounting** | Fractional shares, weighted average cost, realised P&L (with optional broker override), per-fund and portfolio XIRR |
 | 🎯 **Goal Lab** | €100k ETA, "one extra decision" slider, milestone dates, compounding map, DCA backtest vs Nasdaq-100 and S&P 500 |
 | 🎲 **Monte Carlo** | 10,000 lognormal paths calibrated to your portfolio's realised volatility, with a percentile fan chart |
