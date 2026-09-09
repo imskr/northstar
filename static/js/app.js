@@ -998,6 +998,7 @@ function renderKpis(){const r=riskMetrics(),ds=driftScore(),st=contributionStrea
 function benchmarkStats(series){if(series.length<2)return null;const first=series[0].value,last=series.at(-1).value;return (last/first-1)*100}
 function renderBenchmarkBoard(){const portfolio=modelSeries(),nasdaq=benchmarkSeries('qqq'),sp500=benchmarkSeries('spy');const labels={portfolio:'Your portfolio',nasdaq:'Nasdaq-100 · QQQ',sp500:'S&P 500 · SPY'};const colors={portfolio:'#141414',nasdaq:'#2E6BE6',sp500:'#E63312'};const aligned=alignPerformanceSeries([{key:'portfolio',data:portfolio.map(point=>({date:point.date,y:point.value}))},{key:'nasdaq',data:nasdaq.map(point=>({date:point.date,y:point.value}))},{key:'sp500',data:sp500.map(point=>({date:point.date,y:point.value}))}]);const items=aligned.map(item=>[labels[item.key],item.data.length>=2?benchmarkStats(item.data.map(point=>({value:point.y}))):null,colors[item.key]]);const max=Math.max(...items.map(x=>Math.abs(x[1]||0)),1);$('#benchmarkBoard').innerHTML=items.map(([n,v,c])=>`<div class="benchmark-row"><span>${n}</span><div class="bar"><i style="width:${Math.abs(v||0)/max*100}%;background:${c}"></i></div><strong class="${v==null?'':v>=0?'positive':'negative'}">${v==null?'—':`${v>=0?'+':''}${pct(v,2)}`}</strong></div>`).join('')}
 function drawChart(canvas,series,opts={}){
+ cancelFanParticles(canvas); // #mainChart is shared with the fan chart — stop its animation before reusing the canvas
  const dpr=window.devicePixelRatio||1,w=canvas.clientWidth||700,h=canvas.clientHeight||305;canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);
  const c=canvas.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);
  const valueOf=point=>point&&point.y!==null&&point.y!==undefined&&Number.isFinite(Number(point.y))?Number(point.y):null;
@@ -1075,8 +1076,38 @@ function monteCarloGoalProbability(columns,monthIndex,goal){
  return hits/paths*100;
 }
 function withAlpha(hex,a){if(!hex||hex[0]!=='#')return `rgba(27,138,76,${a})`;let h=hex.slice(1);if(h.length===3)h=h.split('').map(x=>x+x).join('');const n=parseInt(h,16);return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`}
+// ── Fan-chart drift particles ───────────────────────────────────────────────
+// Motes that ride the simulated distribution: each picks a percentile lane and
+// drifts from today out to the horizon, wobbling between bands so the swarm
+// fans out the way the underlying paths do (the bands all start at the same
+// value today, so every lane converges on the left edge for free). Purely
+// decorative — bands, median, goal line and the hover readout are drawn
+// identically whether or not particles are running.
+const FAN_Q=[.05,.25,.5,.75,.95],FAN_KEYS=['p5','p25','p50','p75','p95'];
+const FAN_PARTICLES=26,FAN_TRAIL=9,FAN_TRAIL_STEP=.006;
+// Value at an arbitrary quantile, linearly interpolated between the percentile
+// bands we actually carry. Clamped to 5th–95th so nothing escapes the fan.
+function fanQuantileValue(pt,q){
+ if(!pt)return null;
+ const qq=Math.min(.95,Math.max(.05,q));let i=0;while(i<FAN_Q.length-2&&qq>FAN_Q[i+1])i++;
+ const a=pt[FAN_KEYS[i]],b=pt[FAN_KEYS[i+1]];if(!Number.isFinite(a)||!Number.isFinite(b))return null;
+ return a+(b-a)*((qq-FAN_Q[i])/(FAN_Q[i+1]-FAN_Q[i]));
+}
+// Same, at a fractional position t (0 = today, 1 = end of the drawn horizon).
+function fanSampleValue(series,t,q){
+ const n=series.length;if(!n)return null;
+ const pos=Math.max(0,Math.min(n-1,t*(n-1))),i=Math.floor(pos),f=pos-i;
+ const a=fanQuantileValue(series[i],q),b=fanQuantileValue(series[Math.min(n-1,i+1)],q);
+ if(a==null||b==null)return null;return a+(b-a)*f;
+}
+function spawnFanParticle(rng,t=0){return{t,lane:.06+rng()*.88,speed:.045+rng()*.075,wob:.04+rng()*.13,freq:2+rng()*5,phase:rng()*Math.PI*2,size:1.1+rng()*1.7}}
+// The lane a particle occupies at position tt: its own slow wobble along the
+// path plus a gentler shimmer in wall-clock time so a paused swarm still breathes.
+function fanParticleLane(p,tt,clock){return Math.min(.97,Math.max(.03,p.lane+p.wob*Math.sin(tt*p.freq*Math.PI*2+p.phase)+p.wob*.35*Math.sin(clock*.9+p.phase)))}
+function cancelFanParticles(canvas){if(canvas&&canvas.__fanRaf){cancelAnimationFrame(canvas.__fanRaf);canvas.__fanRaf=null}}
 function drawFanChart(canvas,series,opts={}){
  if(!canvas)return;
+ cancelFanParticles(canvas);
  const dpr=window.devicePixelRatio||1,w=canvas.clientWidth||700,h=canvas.clientHeight||300;canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);
  const c=canvas.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);
  const css=getComputedStyle(document.documentElement),muted=css.getPropertyValue('--muted').trim()||'#91a5a7',green=css.getPropertyValue('--green').trim()||'#58e7a8',paper=css.getPropertyValue('--panel').trim()||'#0c1825';
@@ -1088,18 +1119,66 @@ function drawFanChart(canvas,series,opts={}){
  let min=Math.min(0,...values),max=Math.max(...values);const spread=Math.max(2,max-min);max+=spread*.08;
  const pad={l:w<520?54:68,r:18,t:16,b:30},cw=w-pad.l-pad.r,ch=h-pad.t-pad.b,n=series.length;
  const xAt=i=>pad.l+cw*(i/(n-1)),yAt=v=>pad.t+ch*(1-(v-min)/((max-min)||1));
+ const reduceMotion=!!window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+ const animate=!!opts.particles&&!reduceMotion&&n>3;
+ let particles=null,clock=0;
+ if(animate){
+  // Keep the swarm's positions across re-renders so dragging a slider (which
+  // re-simulates and redraws) doesn't restart every particle at today.
+  if(!canvas.__fanParticles)canvas.__fanParticles={rng:mulberry32(MC_SEED^0x9E3779B9),items:null};
+  const store=canvas.__fanParticles;
+  if(!store.items)store.items=Array.from({length:FAN_PARTICLES},()=>spawnFanParticle(store.rng,store.rng()));
+  particles=store.items;
+ }
+ const drawParticles=()=>{
+  if(!particles)return;
+  c.save();c.lineCap='round';
+  for(const p of particles){
+   // Fade in leaving today and out at the horizon so nothing pops in or off.
+   const fade=Math.min(1,p.t/.07)*Math.min(1,Math.max(0,(1-p.t)/.12));if(fade<=0)continue;
+   let px=null,py=null;
+   for(let k=FAN_TRAIL;k>=0;k--){
+    const tt=p.t-k*FAN_TRAIL_STEP;if(tt<0){px=null;continue}
+    const v=fanSampleValue(series,tt,fanParticleLane(p,tt,clock));if(v==null)continue;
+    const x=xAt(tt*(n-1)),y=yAt(v);
+    if(px!==null){c.beginPath();c.moveTo(px,py);c.lineTo(x,y);c.strokeStyle=withAlpha(green,fade*.32*(1-k/(FAN_TRAIL+1)));c.lineWidth=p.size*.9*(1-k/(FAN_TRAIL+2));c.stroke()}
+    px=x;py=y;
+   }
+   if(px===null)continue;
+   c.beginPath();c.arc(px,py,p.size*2.6,0,Math.PI*2);c.fillStyle=withAlpha(green,fade*.10);c.fill();
+   c.beginPath();c.arc(px,py,p.size,0,Math.PI*2);c.fillStyle=withAlpha(green,fade*.85);c.fill();
+  }
+  c.restore();
+ };
  const draw=hoverIndex=>{
   c.clearRect(0,0,w,h);c.save();c.strokeStyle='rgba(255,255,255,.085)';c.lineWidth=1;c.fillStyle=muted;c.font='9px "DM Sans", sans-serif';
   for(let i=0;i<5;i++){const y=pad.t+ch*i/4;c.beginPath();c.moveTo(pad.l,y);c.lineTo(w-pad.r,y);c.stroke();const value=max-(max-min)*i/4;c.fillText(fmt(value,0),2,y+3)}
   const band=(lowKey,highKey,alpha)=>{c.beginPath();series.forEach((pt,i)=>{const x=xAt(i),y=yAt(pt[highKey]);i?c.lineTo(x,y):c.moveTo(x,y)});for(let i=n-1;i>=0;i--){const x=xAt(i),y=yAt(series[i][lowKey]);c.lineTo(x,y)}c.closePath();c.fillStyle=withAlpha(green,alpha);c.fill()};
   band('p5','p95',.14);band('p25','p75',.30);
+  drawParticles();
   c.beginPath();series.forEach((pt,i)=>{const x=xAt(i),y=yAt(pt.p50);i?c.lineTo(x,y):c.moveTo(x,y)});c.strokeStyle=green;c.lineWidth=2.2;c.lineCap='round';c.lineJoin='round';c.stroke();
   if(opts.goal&&opts.goal>=min&&opts.goal<=max){const gy=yAt(opts.goal);c.save();c.strokeStyle='rgba(176,122,0,.6)';c.setLineDash([4,4]);c.beginPath();c.moveTo(pad.l,gy);c.lineTo(w-pad.r,gy);c.stroke();c.restore();c.fillStyle='#B07A00';c.font='9px "DM Sans", sans-serif';c.fillText(`Goal ${fmt(opts.goal,0)}`,pad.l+4,Math.max(10,gy-4))}
   c.fillStyle=muted;c.font='9px "DM Sans", sans-serif';const yearsTotal=(n-1)/12;c.fillText('Today',pad.l,h-8);const lastLabel=`Y${Math.round(yearsTotal)}`;c.fillText(lastLabel,w-pad.r-c.measureText(lastLabel).width,h-8);
   if(hoverIndex!==null&&hoverIndex!==undefined){const pt=series[hoverIndex],x=xAt(hoverIndex);c.strokeStyle='rgba(255,255,255,.3)';c.setLineDash([3,4]);c.beginPath();c.moveTo(x,pad.t);c.lineTo(x,h-pad.b);c.stroke();c.setLineDash([]);for(const key of['p95','p75','p50','p25','p5']){const y=yAt(pt[key]);c.beginPath();c.arc(x,y,key==='p50'?4.5:3,0,Math.PI*2);c.fillStyle=paper;c.fill();c.lineWidth=key==='p50'?2.2:1.4;c.strokeStyle=key==='p50'?green:withAlpha(green,.6);c.stroke()}}
   c.restore();
  };
- draw(null);canvas.__mcDrawHover=draw;canvas.__mcSeries=series;canvas.__mcPad=pad;canvas.__mcW=w;
+ let hoverAt=null;
+ const drawAt=index=>{hoverAt=index??null;draw(hoverAt)};
+ drawAt(null);canvas.__mcDrawHover=drawAt;canvas.__mcSeries=series;canvas.__mcPad=pad;canvas.__mcW=w;
+ if(animate){
+  let last=performance.now();
+  const step=now=>{
+   canvas.__fanRaf=requestAnimationFrame(step);
+   const dt=Math.min(.05,Math.max(0,(now-last)/1000));last=now;
+   // Idle cheaply while the Goal Lab tab is hidden or the browser is in the
+   // background — the frame is still requested, just not simulated or painted.
+   if(document.hidden||!canvas.offsetParent)return;
+   clock=now/1000;
+   for(const p of particles){p.t+=p.speed*dt;if(p.t>1)Object.assign(p,spawnFanParticle(canvas.__fanParticles.rng,0))}
+   draw(hoverAt);
+  };
+  canvas.__fanRaf=requestAnimationFrame(step);
+ }
  if(!canvas.__mcHoverBound){canvas.__mcHoverBound=true;
   canvas.addEventListener('mousemove',event=>{
    if(canvas.__activeChartType!=='fan')return;
@@ -1133,7 +1212,7 @@ function renderMonteCarlo(){
   const {series,columns}=runMonteCarlo({start:tv,monthly,annualReturnPct:ret,annualVolPct:vol,months:Math.max(h,deadline)*12});
   const chartSeries=series.slice(0,h*12+1);
   const last=chartSeries[chartSeries.length-1],topOfChart=Math.max(...chartSeries.map(s=>s.p95));
-  drawFanChart(canvas,chartSeries,{goal:goal>0&&goal<=topOfChart*1.2?goal:null});
+  drawFanChart(canvas,chartSeries,{goal:goal>0&&goal<=topOfChart*1.2?goal:null,particles:true});
   if($('#mcMedian'))$('#mcMedian').textContent=fmt(last.p50,0);
   if($('#mcRange'))$('#mcRange').textContent=`${fmt(last.p5,0)} – ${fmt(last.p95,0)}`;
   const prob=goal>0?monteCarloGoalProbability(columns,deadline*12,goal):null;
@@ -1163,7 +1242,7 @@ function drawMainChart(){
   _mcMainTimer=setTimeout(()=>{
    const{series}=runMonteCarlo({start:tv,monthly,annualReturnPct:ret,annualVolPct:vol,months:years*12});
    const topOfChart=Math.max(...series.map(s=>s.p95));
-   drawFanChart(canvas,series,{goal:goal>0&&goal<=topOfChart*1.2?goal:null});
+   drawFanChart(canvas,series,{goal:goal>0&&goal<=topOfChart*1.2?goal:null,particles:true});
   },90);
   return;
  }
