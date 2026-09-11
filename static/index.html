@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="northstar-build" content="25.0-batched-live-sync-clean-chart">
-<meta name="theme-color" content="#F5F1E8">
+<meta name="northstar-build" content="26.0-helvetia">
+<meta name="theme-color" content="#FFFFFF">
 <meta name="description" content="Northstar — a private, live portfolio operating system for Shubham's ETF plan.">
 <title>Northstar — European Portfolio Tracker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Archivo+Black&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/css/app.css?v=26.7">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/app.css?v=27.0">
 </head>
 <body>
 <div class="auth-boot" id="authBoot" role="status" aria-live="polite" aria-label="Opening Northstar"><div class="auth-boot-card"><div class="auth-boot-mark">N</div><div class="auth-boot-name">Northstar</div><div class="auth-boot-status">Opening your portfolio</div><div class="auth-boot-bar"></div></div></div>
@@ -164,7 +164,7 @@
  <div class="grid three extra-decision-grid"><article class="card pad extra-decision-metric"><div class="eyebrow">Additional wealth</div><div class="decision-value" id="extra100Value">—</div><p class="chart-sub">Extra portfolio value at your selected horizon</p></article><article class="card pad extra-decision-metric"><div class="eyebrow">Goal acceleration</div><div class="decision-value" id="extra100Months">—</div><p class="chart-sub">Estimated time saved on the first €100k</p></article><article class="card pad extra-decision-metric"><div class="eyebrow">Total contributions</div><div class="decision-value" id="totalContributions">—</div><p class="chart-sub">Your own capital including the selected boost</p></article></div>
  <div class="section"><div><h2>Monte Carlo projection</h2><p>10,000 simulated paths using your expected return above, combined with your portfolio's own realised volatility once you've synced price history.</p></div></div>
  <div class="grid two">
-  <article class="card chart-card" style="min-height:400px"><div class="chart-head"><div><div class="chart-title">Outcome fan — 5th to 95th percentile</div><div class="chart-sub">Each simulated month adds your planning-controls contribution after that month's random return</div></div></div><canvas id="monteCarloChart" style="height:300px"></canvas><div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;font-size:10.5px;color:var(--muted)"><span><i style="display:inline-block;width:10px;height:10px;border-radius:3px;background:rgba(27,138,76,.18);margin-right:6px;vertical-align:middle"></i>5th–95th percentile</span><span><i style="display:inline-block;width:10px;height:10px;border-radius:3px;background:rgba(27,138,76,.42);margin-right:6px;vertical-align:middle"></i>25th–75th percentile</span><span><i style="display:inline-block;width:10px;height:2px;background:var(--green);margin-right:6px;vertical-align:middle"></i>Median path</span></div></article>
+  <article class="card chart-card" style="min-height:400px"><div class="chart-head"><div><div class="chart-title">Outcome fan — 5th to 95th percentile</div><div class="chart-sub">Each simulated month adds your planning-controls contribution after that month's random return</div></div></div><canvas id="monteCarloChart" style="height:300px"></canvas><div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;font-size:10.5px;color:var(--muted)"><span><i style="display:inline-block;width:10px;height:10px;background:rgba(10,10,10,.12);margin-right:6px;vertical-align:middle"></i>5th–95th percentile</span><span><i style="display:inline-block;width:10px;height:10px;background:rgba(10,10,10,.26);margin-right:6px;vertical-align:middle"></i>25th–75th percentile</span><span><i style="display:inline-block;width:14px;height:3px;background:var(--accent);margin-right:6px;vertical-align:middle"></i>Median path</span></div></article>
   <article class="card pad"><div class="eyebrow">Simulation summary</div>
    <div class="results" style="margin-top:12px"><div class="result"><span>Median outcome (<span id="mcHorizonYears">20</span>y)</span><strong id="mcMedian">—</strong></div><div class="result"><span>5th–95th percentile range</span><strong id="mcRange">—</strong></div><div class="result"><span>Chance of hitting goal by target date</span><strong id="mcGoalProb">—</strong></div><div class="result"><span>Volatility basis</span><strong id="mcVolBasis" style="font-size:11px">—</strong></div></div>
    <p class="chart-sub" style="margin-top:16px;line-height:1.65">Simulated as a lognormal random walk (no fees, taxes, or rebalancing) so prices can't go negative, calibrated so the median path tracks the same "Base" assumption as the Compounding map. The median often lands below the smooth compounding line — that's volatility drag, not an error. Real markets have fatter tails than a normal distribution, so extreme outcomes are more likely than this model suggests. Not investment advice.</p>
@@ -213,6 +213,6 @@
  <div class="wrapped-yearnav" id="wrappedYearNav"></div>
  <div class="wrapped-scroll" id="wrappedScroll"></div>
 </div>
-<script src="/static/js/app.js?v=26.8"></script>
+<script src="/static/js/app.js?v=27.0"></script>
 <script src="/static/password_reset.js?v=17.0" defer></script>
 </body></html>

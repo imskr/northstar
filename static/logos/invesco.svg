@@ -1,4 +1,4 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 100" role="img" aria-label="Invesco">
-<path d="M16 65 L28 30 L40 65 M32 48 L52 48" fill="none" stroke="#00263e" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="64" y="63" font-family="Arial, Helvetica, sans-serif" font-size="32" font-weight="700" fill="#00263e">Invesco</text>
+<path d="M16 65 L28 30 L40 65 M32 48 L52 48" fill="none" stroke="#E30613" stroke-width="6" stroke-linecap="butt" stroke-linejoin="miter"/>
+<text x="64" y="63" font-family="Inter Tight, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="32" font-weight="700" fill="#0A0A0A">Invesco</text>
 </svg>

@@ -1,16 +1,18 @@
 <div align="center">
 
-# ⭐ Northstar
+<img src="static/northstar-mark.svg" alt="" width="64" height="64">
+
+# Northstar
 
 **A private, self-hosted portfolio ledger for long-term European investors.**
 
 Track fractional positions, XIRR, allocation drift, and your path to €100k —
 across any ETF or individual stock listed on 34 European exchanges, normalised to EUR. You can also add more instruments to the catalog that aren't listed.
 
-[![CI](https://img.shields.io/badge/CI-GitHub_Actions-141414?logo=githubactions&logoColor=FFD927)](.github/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-141414)](LICENSE)
+[![CI](https://img.shields.io/badge/CI-GitHub_Actions-0A0A0A?logo=githubactions&logoColor=E30613)](.github/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-0A0A0A)](LICENSE)
 
-<img src="docs/screenshots/overview.png" alt="Northstar overview dashboard" width="900">
+<img src="static/northstar-helvetia-design.png" alt="Northstar overview dashboard" width="900">
 
 </div>
 

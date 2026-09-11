@@ -531,7 +531,7 @@
       "nativeCurrency": "GBP",
       "issuer": "State Street SPDR",
       "assetClass": "Equity",
-      "logo": "/static/logos/spdr.svg",
+      "logo": "",
       "kind": "etf"
     },
     {
@@ -544,7 +544,7 @@
       "nativeCurrency": "EUR",
       "issuer": "Xtrackers",
       "assetClass": "Equity",
-      "logo": "/static/logos/xtrackers.svg",
+      "logo": "",
       "kind": "etf"
     },
     {
@@ -557,7 +557,7 @@
       "nativeCurrency": "EUR",
       "issuer": "State Street SPDR",
       "assetClass": "Equity",
-      "logo": "/static/logos/spdr.svg",
+      "logo": "",
       "kind": "etf"
     },
     {
@@ -570,7 +570,7 @@
       "nativeCurrency": "EUR",
       "issuer": "State Street SPDR",
       "assetClass": "Equity",
-      "logo": "/static/logos/spdr.svg",
+      "logo": "",
       "kind": "etf"
     },
     {
