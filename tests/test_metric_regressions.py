@@ -308,7 +308,7 @@ def test_app_js_cache_buster_matches_the_bundle():
     """index.html pins app.js with a ?v= query string; leaving it stale serves
     browsers the previous bundle, so new fields never appear at all."""
     html = pathlib.Path("static/index.html").read_text()
-    assert 'src="/static/js/app.js?v=26.8"' in html
+    assert 'src="/static/js/app.js?v=27.0"' in html
 
 
 def test_dca_window_is_whole_calendar_months():
