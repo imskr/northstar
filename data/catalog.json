@@ -600,6 +600,19 @@
       "logo": ""
     },
     {
+      "symbol": "1YD.DE",
+      "ticker": "1YD",
+      "name": "Broadcom, Inc.",
+      "isin": "US11135F1012",
+      "exchangeSuffix": ".DE",
+      "exchange": "Xetra",
+      "nativeCurrency": "EUR",
+      "issuer": "Broadcom, Inc.",
+      "assetClass": "Equity",
+      "kind": "stock",
+      "logo": ""
+    },
+    {
       "symbol": "ALV.DE",
       "ticker": "ALV",
       "name": "Allianz SE",
