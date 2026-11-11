@@ -504,9 +504,9 @@ function calendarYearCashFlows(year){
 function calendarXirr(year){
  const r=calendarYearCashFlows(year);
  if(!r.flows)return{xirr:null,reason:r.reason,isCurrentYear:r.isCurrentYear};
- const x=xirr(r.flows);
+ const dx=displayXirr(r.flows),x=dx?.rate??null;
  const reason=x==null?(r.isCurrentYear&&!state.market.lastUpdated?'Sync prices to calculate':'Not enough activity yet'):null;
- return{xirr:x,reason,isCurrentYear:r.isCurrentYear,startValue:r.startValue,endValue:r.endValue};
+ return{xirr:x,annualised:!!dx?.annualised,days:dx?.days??null,reason,isCurrentYear:r.isCurrentYear,startValue:r.startValue,endValue:r.endValue};
 }
 // ── Year in review ───────────────────────────────────────────────────────
 // A monthly return, reusing the exact same XIRR machinery as Calendar XIRR (so
@@ -632,7 +632,7 @@ function yearInReviewData(year){
  const cf=calendarYearCashFlows(year);
  return{
   year,
-  xirr:xirrDetail.xirr,isCurrentYear:xirrDetail.isCurrentYear,
+  xirr:xirrDetail.xirr,xirrAnnualised:xirrDetail.annualised,isCurrentYear:xirrDetail.isCurrentYear,
   startValue:cf.startValue,endValue:cf.endValue,
   bestMonth:best,worstMonth:worst,
   biggestContribution:contribution,
@@ -652,7 +652,7 @@ function renderYearInReview(year){
  const slides=[];
  slides.push(wrappedSlide({bg:'#0A0A0A',fg:'#FFFFFF',eyebrow:'Your year with Northstar',label:`${year}, so far`,sub:`Everything on the next few screens comes straight from your own trade history — no estimates.`}));
  if(d.xirr!=null){
-  slides.push(wrappedSlide({bg:'#E30613',fg:'#FFFFFF',eyebrow:`Your ${year} XIRR`,number:`${d.xirr>=0?'+':''}${(d.xirr*100).toFixed(1)}%`,label:'money-weighted return',sub:'The actual rate your money grew at, accounting for exactly when you put it in.'}));
+  slides.push(wrappedSlide({bg:'#E30613',fg:'#FFFFFF',eyebrow:`Your ${year} XIRR`,number:`${d.xirr>=0?'+':''}${(d.xirr*100).toFixed(1)}%`,label:d.xirrAnnualised?'money-weighted return':'money-weighted return · not annualised',sub:'The actual rate your money grew at, accounting for exactly when you put it in.'}));
  }else{
   slides.push(wrappedSlide({bg:'#E30613',fg:'#FFFFFF',eyebrow:'Still early',label:'Not enough history yet for a full return',sub:'Sync more price history and this will fill in.'}));
  }
@@ -1304,7 +1304,7 @@ function renderCalendarXirr(){
  el.innerHTML=results.map(r=>{
   const value=r.xirr==null?'—':`${r.xirr>=0?'+':''}${pct(r.xirr*100,2)}`;
   const cls=r.xirr==null?'':r.xirr>=0?'positive':'negative';
-  const caption=r.xirr==null?(r.reason||'Not enough data'):(r.isCurrentYear?'1 Jan – today (year to date)':'1 Jan – 31 Dec');
+  const caption=r.xirr==null?(r.reason||'Not enough data'):(r.annualised?(r.isCurrentYear?'1 Jan – today (year to date)':'1 Jan – 31 Dec'):`${Math.round(r.days)} days of activity · not annualised`);
   return `<article class="card kpi"><label>${r.year}</label><strong class="${cls}">${value}</strong><small>${esc(caption)}</small></article>`;
  }).join('');
 }
