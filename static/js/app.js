@@ -340,13 +340,23 @@ function assetXirrCashFlows(id,includeCurrentValue=true){
  if(includeCurrentValue){const p=replay(id);if(p.shares>1e-10&&state.market.lastUpdated&&p.price)flows.push({date:new Date().toISOString().slice(0,10),amount:p.value})}
  return flows;
 }
-function assetXirr(id){return xirr(assetXirrCashFlows(id))}
+// Annualising a few weeks of return compounds it into absurd figures (+15% over
+// a month reads as millions of percent), so — like GIPS and most brokers — a
+// money-weighted rate is only shown annualised once the cash flows span a year.
+// Shorter histories show the same rate de-annualised over their actual span.
+function displayXirr(flows){
+ const rate=xirr(flows);if(rate==null)return null;
+ const dates=flows.filter(f=>f.date&&Number(f.amount)).map(f=>daysSinceEpoch(f.date));
+ const days=Math.max(...dates)-Math.min(...dates);
+ return days>=365?{rate,annualised:true,days}:{rate:Math.pow(1+rate,days/365)-1,annualised:false,days};
+}
+function assetXirr(id){return displayXirr(assetXirrCashFlows(id))}
 function portfolioXirr(){
  const flows=[];
  const ids=new Set([...Object.keys(state.assets),...Object.keys(state.archivedAssets||{})]);
  for(const id of ids)flows.push(...assetXirrCashFlows(id,false));
  if(state.market.lastUpdated){const tv=totalValue();if(tv>0)flows.push({date:new Date().toISOString().slice(0,10),amount:tv})}
- return xirr(flows);
+ return displayXirr(flows);
 }
 // ── Calendar-year XIRR ──────────────────────────────────────────────────────
 // Isolates a single calendar year's money-weighted return by treating the
@@ -779,7 +789,11 @@ function whatIfBacktest(benchmarkKey){
  const series=[...raw].sort((a,b)=>a.date.localeCompare(b.date));
  const first=series[0].date,last=series.at(-1).date;
  function valueOnOrAfter(dateStr){
-  if(dateStr<first||dateStr>last)return null;
+  if(dateStr<first)return null;
+  // A buy dated after the latest synced benchmark close (today's trade, before
+  // the index has a new daily bar) is priced at that latest close rather than
+  // dropped — dropping it silently shrank the comparison to part of the money.
+  if(dateStr>last)return daysSinceEpoch(dateStr)-daysSinceEpoch(last)<=7?series.at(-1).value:null;
   for(const p of series)if(p.date>=dateStr)return p.value;
   return null;
  }
@@ -799,10 +813,10 @@ function whatIfBacktest(benchmarkKey){
  // Mirrors what actually happened: a sell frees up cash in the hypothetical position too,
  // and that cash funds the next buy before any of it counts as a fresh contribution — so
  // reinvesting real proceeds into a different holding doesn't get double-counted here either.
- let units=0,contributed=0,skipped=0,cash=0;
+ let units=0,contributed=0,skipped=0,cash=0;const skippedWhy=new Set();
  for(const e of events){
   const price=valueOnOrAfter(e.date);
-  if(price==null||price<=0){if(e.type==='buy')skipped+=e.amount;continue}
+  if(price==null||price<=0){if(e.type==='buy'){skipped+=e.amount;skippedWhy.add(e.date==='0000-00-00'?'undated':e.date<first?'before':'after')}continue}
   if(e.type==='buy'){
    const fromCash=Math.min(cash,e.amount);
    cash-=fromCash;
@@ -816,7 +830,7 @@ function whatIfBacktest(benchmarkKey){
  }
  if(contributed<=0)return null;
  const hypotheticalValue=units*series.at(-1).value+cash;
- return{contributed,skipped,hypotheticalValue,totalReturn:(hypotheticalValue/contributed-1)*100,coverage:contributed/(contributed+skipped)*100};
+ return{contributed,skipped,hypotheticalValue,totalReturn:(hypotheticalValue/contributed-1)*100,coverage:contributed/(contributed+skipped)*100,skippedWhy:[...skippedWhy]};
 }
 function sortinoRatio(arr,rf){if(!arr||arr.length<20)return null;const rfD=Math.pow(1+(rf||0)/100,1/252)-1,excess=arr.map(r=>r-rfD);const downsideSq=excess.map(r=>Math.min(0,r)**2);if(!downsideSq.some(v=>v>0))return null;const dd=Math.sqrt(mean(downsideSq))*Math.sqrt(252);return dd>0?mean(excess)*252/dd:null}
 function filterSeriesMonths(series,months){if(!series||!series.length)return[];const cut=new Date();cut.setMonth(cut.getMonth()-months);const cd=cut.toISOString().slice(0,10);const f=series.filter(p=>p.date>=cd);if(f.length<5)return[];const base=f[0].value;return f.map(p=>({date:p.date,value:p.value/base*100}))}
@@ -964,10 +978,10 @@ function renderOverview(){
  $('#todayPnl').className=day==null?'':day>=0?'positive':'negative';
  const prev=day==null?null:tv-day;
  $('#todaySub').textContent=day==null?(valuation.hasMarketPrice?'Previous close unavailable':'Sync prices for today’s move'):`${day>=0?'+':''}${pct(prev?day/prev*100:0,2)} today`;
- const px=portfolioXirr();
+ const pxr=portfolioXirr(),px=pxr?.rate??null;
  $('#costBasis').textContent=px==null?'—':`${px>=0?'+':''}${pct(px*100,2)}`;
  $('#costBasis').className=px==null?'':px>=0?'positive':'negative';
- $('#costSub').textContent=px==null?'Add trades or sync prices for XIRR':'Money-weighted, since first cash flow';
+ $('#costSub').textContent=px==null?'Add trades or sync prices for XIRR':pxr.annualised?'Money-weighted, since first cash flow':`Money-weighted, since first cash flow · not annualised (${Math.round(pxr.days)} days)`;
  $('#personalReturn').textContent=pr==null?'—':`${pr>=0?'+':''}${pct(pr,2)}`;
  $('#personalReturn').className=pr==null?'':pr>=0?'positive':'negative';
  if(!valuation.hasHoldings)$('#valueSub').textContent=`0.00% of ${fmt(goal)}`;
@@ -984,7 +998,7 @@ function renderOverview(){
 
  renderKpis();renderBenchmarkBoard();renderAllocation();renderHoldings();renderActionPlan();drawMainChart();renderMarket()}
 function renderAllocation(){const tv=totalValue(),ids=Object.keys(state.assets);if(!ids.length){$('#donut').style.background='#EDEDED';$('#donutValue').textContent='—';$('#allocationStatus').textContent='Add holdings';$('#allocationStatus').className='status amber';$('#allocationList').innerHTML='<div class="empty-portfolio"><strong>No allocation yet</strong>Add holdings from the Positions page to create your target allocation.</div>';return}let d=0,stops=[];for(const id of ids){const w=weight(id),s=d;d+=w*360;stops.push(`${META[id].color} ${s}deg ${d}deg`)}$('#donut').style.background=`conic-gradient(${stops.join(',')})`;$('#donutValue').textContent=state.market.lastUpdated?fmt(activeValue(),0):'—';const ds=driftScore();$('#allocationStatus').textContent=ds>=90?'On target':ds>=75?'Minor drift':'Rebalance with contributions';$('#allocationStatus').className='status '+(ds>=90?'positive':ds>=75?'amber':'negative');$('#allocationList').innerHTML=ids.map(id=>{const w=weight(id),t=state.assets[id].target,dr=(w-t)*100,p=replay(id);return `<div class="alloc-item"><div><b><i class="ticker-dot" style="background:${META[id].color}"></i>${esc(META[id].ticker)} · ${esc(META[id].focus)}</b><small>${fmt(p.value,0)} · target ${pct(t*100)}</small><div class="drift-bar"><i style="width:${Math.min(100,Math.abs(dr)*8+4)}%;background:${Math.abs(dr)>5?'var(--amber)':META[id].color}"></i></div></div><div class="alloc-right"><strong>${pct(w*100)}</strong><small class="${Math.abs(dr)>5?'amber':''}">${dr>=0?'+':''}${dr.toFixed(1)} pp</small></div></div>`}).join('')}
-function renderHoldings(){const live=!!state.market.lastUpdated,archivedOpen=Object.keys(state.archivedAssets||{}).filter(id=>!state.assets[id]&&replay(id).shares>1e-10),ids=[...Object.keys(state.assets),...archivedOpen];if(!ids.length){$('#holdingsGrid').innerHTML='<div class="empty-portfolio"><strong>Your portfolio is empty</strong>Open Positions and add the European-listed instruments you want to track.</div>';return}$('#holdingsGrid').innerHTML=ids.map(id=>{const p=replay(id),m=META[id],a=assetById(id)||{},r=p.cost?p.unreal/p.cost*100:null,dc=p.prev&&p.price?(p.price/p.prev-1)*100:null,ax=assetXirr(id);return `<article class="card holding"><div class="holding-head"><div><div class="holding-title">${esc(m.name)}</div><div class="issuer">${esc(a.exchange||m.issuer)}${m.ter?` · TER ${m.ter.toFixed(2)}%`:''}</div></div><div class="logo">${m.logo?`<img src="${esc(m.logo)}" alt="${esc(m.issuer)} logo" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display=''"><div class="logo-letter" style="background:${m.color};color:${inkOn(m.color)};display:none">${esc(m.ticker.slice(0,2))}</div>`:`<div class="logo-letter" style="background:${m.color};color:${inkOn(m.color)}">${esc(m.ticker.slice(0,2))}</div>`}</div></div><div class="holding-symbol">${esc(m.ticker)}${m.archived?' <small class="amber">RETIRED FROM PLAN</small>':''}</div><div class="price-line"><div><span>${basisName()}</span><strong>${live&&p.price?fmt(p.price,4):'—'}</strong></div><div class="daymove"><span>Today</span><strong class="${dc==null?'':dc>=0?'positive':'negative'}">${dc==null?'—':`${dc>=0?'+':''}${pct(dc,2)}`}</strong></div></div><div class="quote-meta"><b>${quoteState(id)}</b><span>${quoteDetails(id)}</span></div><div class="stats2"><div class="stat"><span>Fractional shares</span><strong>${num(p.shares)}</strong></div><div class="stat"><span>Average entry</span><strong>${p.avg?fmt(p.avg,4):'—'}</strong></div><div class="stat"><span>Market value</span><strong>${live?fmt(p.value,2):'—'}</strong></div><div class="stat"><span>Unrealised P&amp;L</span><strong class="${p.unreal>=0?'positive':'negative'}">${live?`${p.unreal>=0?'+':''}${fmt(p.unreal,2)} · ${r==null?'—':pct(r,2)}`:'—'}</strong></div><div class="stat"><span>Portfolio weight</span><strong>${m.archived?'—':pct(weight(id)*100)}</strong></div><div class="stat"><span>XIRR</span><strong class="${ax==null?'':ax>=0?'positive':'negative'}">${ax==null?'—':`${ax>=0?'+':''}${pct(ax*100,2)}`}</strong></div></div><div class="holding-foot"><span>${esc(a.symbol)}${a.priceSymbol?` · priced from ${esc(a.priceSymbol)}`:''}</span><span class="risk">${esc(a.nativeCurrency||'EUR')} listing</span></div></article>`}).join('')}
+function renderHoldings(){const live=!!state.market.lastUpdated,archivedOpen=Object.keys(state.archivedAssets||{}).filter(id=>!state.assets[id]&&replay(id).shares>1e-10),ids=[...Object.keys(state.assets),...archivedOpen];if(!ids.length){$('#holdingsGrid').innerHTML='<div class="empty-portfolio"><strong>Your portfolio is empty</strong>Open Positions and add the European-listed instruments you want to track.</div>';return}$('#holdingsGrid').innerHTML=ids.map(id=>{const p=replay(id),m=META[id],a=assetById(id)||{},r=p.cost?p.unreal/p.cost*100:null,dc=p.prev&&p.price?(p.price/p.prev-1)*100:null,axr=assetXirr(id),ax=axr?.rate??null;return `<article class="card holding"><div class="holding-head"><div><div class="holding-title">${esc(m.name)}</div><div class="issuer">${esc(a.exchange||m.issuer)}${m.ter?` · TER ${m.ter.toFixed(2)}%`:''}</div></div><div class="logo">${m.logo?`<img src="${esc(m.logo)}" alt="${esc(m.issuer)} logo" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display=''"><div class="logo-letter" style="background:${m.color};color:${inkOn(m.color)};display:none">${esc(m.ticker.slice(0,2))}</div>`:`<div class="logo-letter" style="background:${m.color};color:${inkOn(m.color)}">${esc(m.ticker.slice(0,2))}</div>`}</div></div><div class="holding-symbol">${esc(m.ticker)}${m.archived?' <small class="amber">RETIRED FROM PLAN</small>':''}</div><div class="price-line"><div><span>${basisName()}</span><strong>${live&&p.price?fmt(p.price,4):'—'}</strong></div><div class="daymove"><span>Today</span><strong class="${dc==null?'':dc>=0?'positive':'negative'}">${dc==null?'—':`${dc>=0?'+':''}${pct(dc,2)}`}</strong></div></div><div class="quote-meta"><b>${quoteState(id)}</b><span>${quoteDetails(id)}</span></div><div class="stats2"><div class="stat"><span>Fractional shares</span><strong>${num(p.shares)}</strong></div><div class="stat"><span>Average entry</span><strong>${p.avg?fmt(p.avg,4):'—'}</strong></div><div class="stat"><span>Market value</span><strong>${live?fmt(p.value,2):'—'}</strong></div><div class="stat"><span>Unrealised P&amp;L</span><strong class="${p.unreal>=0?'positive':'negative'}">${live?`${p.unreal>=0?'+':''}${fmt(p.unreal,2)} · ${r==null?'—':pct(r,2)}`:'—'}</strong></div><div class="stat"><span>Portfolio weight</span><strong>${m.archived?'—':pct(weight(id)*100)}</strong></div><div class="stat"><span>XIRR${axr&&!axr.annualised?' · <1y, not annualised':''}</span><strong class="${ax==null?'':ax>=0?'positive':'negative'}">${ax==null?'—':`${ax>=0?'+':''}${pct(ax*100,2)}`}</strong></div></div><div class="holding-foot"><span>${esc(a.symbol)}${a.priceSymbol?` · priced from ${esc(a.priceSymbol)}`:''}</span><span class="risk">${esc(a.nativeCurrency||'EUR')} listing</span></div></article>`}).join('')}
 function actionPlanRows(budget){const rows=Object.entries(budget).filter(([id,amount])=>state.assets[id]&&amount>0.5).sort((a,b)=>b[1]-a[1]);return rows.map(([id,amount])=>{const ticker=esc(META[id]?.ticker||id),name=esc(META[id]?.name||'');return `<div class="action-row"><span style="min-width:0;overflow:hidden"><b style="display:block">${ticker}</b>${name?`<small style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.65;font-weight:400">${name}</small>`:''}</span><strong style="flex-shrink:0;margin-left:10px">${fmt(amount,0)}</strong></div>`}).join('')}
 function renderActionPlan(){
  const statusEl=$('#planStatus'),dotEl=$('#planDot'),amountEl=$('#boostAmount'),titleEl=$('#boostTitle'),copyEl=$('#boostCopy'),listEl=$('#actionPlan');
@@ -1334,11 +1348,11 @@ function renderWhatIfBacktest(){
  const rows=[{label:'Your portfolio',invested:invested>0?invested:null,value:tv,ret:actualReturn,coverage:null}];
  for(const [key,label] of[['qqq','Nasdaq-100'],['spy','S&P 500']]){
   const r=whatIfBacktest(key);
-  rows.push({label,invested:r?r.contributed:null,value:r?r.hypotheticalValue:null,ret:r?r.totalReturn:null,coverage:r?r.coverage:null});
+  rows.push({label,invested:r?r.contributed:null,value:r?r.hypotheticalValue:null,ret:r?r.totalReturn:null,coverage:r?r.coverage:null,skippedWhy:r?.skippedWhy||[]});
  }
  if(rows.every(r=>r.value==null)){el.innerHTML='<div class="empty">Add trades and sync price history to run this comparison.</div>';return}
  el.innerHTML=rows.map(r=>{
-  const note=r.coverage!=null&&r.coverage<99.5?`<p class="chart-sub" style="margin-top:10px">Covers ${r.coverage.toFixed(0)}% of your contributions — the rest predate this benchmark's synced history.</p>`:'';
+  const note=r.coverage!=null&&r.coverage<99.5?`<p class="chart-sub" style="margin-top:10px">Covers ${r.coverage.toFixed(0)}% of your contributions — the rest ${r.skippedWhy.map(w=>w==='undated'?'are starting holdings without a “baseline as of” date':w==='before'?"predate this benchmark's synced history":'are newer than its last synced close (sync history)').join(', or ')}.</p>`:'';
   return `<article class="card pad"><div class="eyebrow">${esc(r.label)}</div><div class="results" style="grid-template-columns:1fr"><div class="result"><span>Invested</span><strong>${r.invested!=null?fmt(r.invested,0):'—'}</strong></div><div class="result"><span>Value today</span><strong>${r.value!=null?fmt(r.value,0):'—'}</strong></div><div class="result"><span>Total return</span><strong class="${r.ret==null?'':r.ret>=0?'positive':'negative'}">${r.ret==null?'—':`${r.ret>=0?'+':''}${pct(r.ret,2)}`}</strong></div></div>${note}</article>`;
  }).join('');
 }
